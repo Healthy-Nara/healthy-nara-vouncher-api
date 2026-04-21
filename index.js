@@ -153,9 +153,15 @@ const createLog = async (req, action, resourceType, resourceId, details) => {
 // 1. Create Invoice - BOTH admin and staff
 app.post('/api/invoices', authMiddleware, async (req, res) => {
   try {
-    const { customerName, caregiverName, dutyType, amount, date, dueDate, customerId, caregiverId, platformFeeRate = 10 } = req.body;
+    const { 
+      customerName, caregiverName, dutyType, servicePackage, 
+      amount, date, serviceStartDate, serviceEndDate, dueDate, 
+      customerId, caregiverId, platformFeeRate = 10 
+    } = req.body;
+    
     const invoiceNumber = await generateInvoiceNumber();
     const platformFee = (amount * platformFeeRate) / 100;
+    
     const invoice = new Invoice({
       invoiceNumber,
       customerName,
@@ -163,10 +169,13 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
       customer: customerId || null,
       caregiver: caregiverId || null,
       dutyType,
+      servicePackage,
       amount,
       platformFeeRate,
       platformFee,
       date,
+      serviceStartDate,
+      serviceEndDate,
       dueDate
     });
     await invoice.save();
@@ -232,11 +241,21 @@ app.get('/api/caregivers', authMiddleware, roleMiddleware(['admin']), async (req
 // 2. Get All Invoices - ONLY admin
 app.get('/api/invoices', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
   try {
-    const { status, customerPaymentStatus, caregiverPayoutStatus } = req.query;
+    const { status, customerPaymentStatus, caregiverPayoutStatus, startDate, endDate } = req.query;
     const query = {};
     if (status) query.status = status;
     if (customerPaymentStatus) query.customerPaymentStatus = customerPaymentStatus;
     if (caregiverPayoutStatus) query.caregiverPayoutStatus = caregiverPayoutStatus;
+    
+    if (startDate || endDate) {
+      query.date = {};
+      if (startDate) query.date.$gte = new Date(startDate);
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        query.date.$lte = end;
+      }
+    }
     
     const invoices = await Invoice.find(query).sort({ createdAt: -1 });
     res.json(invoices);
@@ -338,13 +357,20 @@ app.put('/api/invoices/:invoiceNumber', authMiddleware, roleMiddleware(['admin']
     const invoice = await Invoice.findOne({ invoiceNumber: req.params.invoiceNumber });
     if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
 
-    const { customerName, caregiverName, amount, dutyType, date, dueDate, paymentMethod, customerId, caregiverId, platformFeeRate } = req.body;
+    const { 
+      customerName, caregiverName, amount, dutyType, servicePackage, 
+      date, serviceStartDate, serviceEndDate, dueDate, 
+      paymentMethod, customerId, caregiverId, platformFeeRate 
+    } = req.body;
 
     if (customerName !== undefined) invoice.customerName = customerName;
     if (caregiverName !== undefined) invoice.caregiverName = caregiverName;
     if (amount !== undefined) invoice.amount = amount;
     if (dutyType !== undefined) invoice.dutyType = dutyType;
+    if (servicePackage !== undefined) invoice.servicePackage = servicePackage;
     if (date !== undefined) invoice.date = date;
+    if (serviceStartDate !== undefined) invoice.serviceStartDate = serviceStartDate;
+    if (serviceEndDate !== undefined) invoice.serviceEndDate = serviceEndDate;
     if (dueDate !== undefined) invoice.dueDate = dueDate;
     if (paymentMethod !== undefined) invoice.paymentMethod = paymentMethod;
     if (customerId !== undefined) invoice.customer = customerId || null;
@@ -421,9 +447,10 @@ app.get('/api/stats', authMiddleware, roleMiddleware(['admin']), async (req, res
     
     const stats = {
       totalInvoices: invoices.length,
-      totalRevenue: invoices.reduce((sum, inv) => sum + inv.amount, 0),
+      totalRevenue: invoices.reduce((sum, inv) => sum + inv.amount + (inv.platformFee || 0), 0),
+      totalPayouts: invoices.reduce((sum, inv) => sum + inv.amount, 0),
       totalProfit: invoices.reduce((sum, inv) => sum + (inv.platformFee || 0), 0),
-      pendingPayments: invoices.filter(i => i.customerPaymentStatus === 'Pending').reduce((sum, inv) => sum + inv.amount, 0),
+      pendingPayments: invoices.filter(i => i.customerPaymentStatus === 'Pending').reduce((sum, inv) => sum + inv.amount + (inv.platformFee || 0), 0),
       pendingPayouts: invoices.filter(i => i.caregiverPayoutStatus === 'Pending').reduce((sum, inv) => sum + inv.amount, 0),
       completedInvoices: invoices.filter(i => i.status === 'Completed').length,
     };

@@ -7,10 +7,13 @@ const invoiceSchema = new mongoose.Schema({
   caregiver: { type: mongoose.Schema.Types.ObjectId, ref: 'Caregiver' },
   caregiverName: { type: String, required: true }, // Keep as fallback/display name
   dutyType: { type: String, required: true },
+  servicePackage: { type: String, enum: ['Newborn Service', 'Childcare Service', 'N/A'], default: 'N/A' },
   amount: { type: Number, required: true },
   platformFeeRate: { type: Number, default: 10 },
   platformFee: { type: Number, default: 0 },
   date: { type: Date, required: true },
+  serviceStartDate: { type: Date },
+  serviceEndDate: { type: Date },
   dueDate: { type: Date },
   paymentMethod: { type: String, default: 'Kpay' },
   customerPaymentStatus: { 
