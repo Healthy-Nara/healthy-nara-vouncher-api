@@ -176,7 +176,7 @@ const createLog = async (req, action, resourceType, resourceId, details) => {
 // --- Routes ---
 
 // --- Lead Routes ---
-app.post('/api/leads', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.post('/api/leads', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const { customerName, phoneNumber, channel, requirements, assignedStaffId, assignedStaffName, tags, notes } = req.body;
     const lead = new Lead({
@@ -197,7 +197,7 @@ app.post('/api/leads', authMiddleware, roleMiddleware(['admin']), async (req, re
   }
 });
 
-app.get('/api/leads', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.get('/api/leads', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const { stage } = req.query;
     const query = {};
@@ -209,7 +209,7 @@ app.get('/api/leads', authMiddleware, roleMiddleware(['admin']), async (req, res
   }
 });
 
-app.get('/api/leads/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.get('/api/leads/:id', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const lead = await Lead.findById(req.params.id);
     if (!lead) return sendError(res, 'Lead not found', 404);
@@ -219,7 +219,7 @@ app.get('/api/leads/:id', authMiddleware, roleMiddleware(['admin']), async (req,
   }
 });
 
-app.put('/api/leads/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.put('/api/leads/:id', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const lead = await Lead.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
     if (!lead) return sendError(res, 'Lead not found', 404);
@@ -230,7 +230,7 @@ app.put('/api/leads/:id', authMiddleware, roleMiddleware(['admin']), async (req,
   }
 });
 
-app.patch('/api/leads/:id/stage', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.patch('/api/leads/:id/stage', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const { stage, lostReason } = req.body;
     const update = { stage };
@@ -244,7 +244,7 @@ app.patch('/api/leads/:id/stage', authMiddleware, roleMiddleware(['admin']), asy
   }
 });
 
-app.post('/api/leads/:id/logs', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.post('/api/leads/:id/logs', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const { note } = req.body;
     const lead = await Lead.findById(req.params.id);
@@ -263,7 +263,7 @@ app.post('/api/leads/:id/logs', authMiddleware, roleMiddleware(['admin']), async
 });
 
 // Edit a conversation log
-app.put('/api/leads/:leadId/logs/:logId', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.put('/api/leads/:leadId/logs/:logId', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const { note } = req.body;
     const lead = await Lead.findById(req.params.leadId);
@@ -282,7 +282,7 @@ app.put('/api/leads/:leadId/logs/:logId', authMiddleware, roleMiddleware(['admin
 });
 
 // Delete a conversation log (soft delete)
-app.delete('/api/leads/:leadId/logs/:logId', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.delete('/api/leads/:leadId/logs/:logId', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const lead = await Lead.findById(req.params.leadId);
     if (!lead) return sendError(res, 'Lead not found', 404);
@@ -299,7 +299,7 @@ app.delete('/api/leads/:leadId/logs/:logId', authMiddleware, roleMiddleware(['ad
   }
 });
 
-app.post('/api/leads/:id/convert', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.post('/api/leads/:id/convert', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const { servicePackage, dutyType, requestedDates, requirements } = req.body;
     const lead = await Lead.findById(req.params.id);
@@ -340,7 +340,7 @@ app.post('/api/leads/:id/convert', authMiddleware, roleMiddleware(['admin']), as
   }
 });
 
-app.delete('/api/leads/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.delete('/api/leads/:id', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const lead = await Lead.findByIdAndDelete(req.params.id);
     if (!lead) return sendError(res, 'Lead not found', 404);
@@ -352,7 +352,7 @@ app.delete('/api/leads/:id', authMiddleware, roleMiddleware(['admin']), async (r
 });
 
 // --- Booking Routes ---
-app.post('/api/bookings', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.post('/api/bookings', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const { leadId, servicePackage, dutyType, requestedDates, requirements, notes } = req.body;
     const lead = await Lead.findById(leadId);
@@ -385,7 +385,7 @@ app.post('/api/bookings', authMiddleware, roleMiddleware(['admin']), async (req,
 });
 
 // Create booking from existing Parent (no Lead)
-app.post('/api/bookings/from-parent', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.post('/api/bookings/from-parent', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const { parentInfo, dutyDuration, dutyShift, requestedDates, additionalNotes } = req.body;
     const parent = await Parent.findById(parentInfo);
@@ -413,7 +413,7 @@ app.post('/api/bookings/from-parent', authMiddleware, roleMiddleware(['admin']),
   }
 });
 
-app.get('/api/bookings', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.get('/api/bookings', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const { status, leadId } = req.query;
     const query = {};
@@ -430,7 +430,7 @@ app.get('/api/bookings', authMiddleware, roleMiddleware(['admin']), async (req, 
   }
 });
 
-app.get('/api/bookings/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.get('/api/bookings/:id', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const booking = await Booking.findById(req.params.id)
       .populate('lead')
@@ -445,7 +445,7 @@ app.get('/api/bookings/:id', authMiddleware, roleMiddleware(['admin']), async (r
   }
 });
 
-app.put('/api/bookings/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.put('/api/bookings/:id', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const booking = await Booking.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
     if (!booking) return sendError(res, 'Booking not found', 404);
@@ -455,7 +455,7 @@ app.put('/api/bookings/:id', authMiddleware, roleMiddleware(['admin']), async (r
   }
 });
 
-app.get('/api/bookings/:id/match', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.get('/api/bookings/:id/match', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const booking = await Booking.findById(req.params.id);
     if (!booking) return sendError(res, 'Booking not found', 404);
@@ -474,7 +474,7 @@ app.get('/api/bookings/:id/match', authMiddleware, roleMiddleware(['admin']), as
   }
 });
 
-app.patch('/api/bookings/:id/assign', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.patch('/api/bookings/:id/assign', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const { caregiverId } = req.body;
     const booking = await Booking.findById(req.params.id);
@@ -550,7 +550,7 @@ app.patch('/api/bookings/:id/status', authMiddleware, roleMiddleware(['admin', '
   }
 });
 
-app.post('/api/bookings/:id/generate-invoice', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.post('/api/bookings/:id/generate-invoice', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const { amount, platformFeeRate = 10 } = req.body;
     const booking = await Booking.findById(req.params.id).populate('selectedCaregiver');
@@ -745,7 +745,7 @@ app.post('/api/bookings/public/:token/select', async (req, res) => {
   }
 });
 
-app.delete('/api/bookings/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.delete('/api/bookings/:id', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const booking = await Booking.findByIdAndDelete(req.params.id);
     if (!booking) return sendError(res, 'Booking not found', 404);
@@ -757,7 +757,7 @@ app.delete('/api/bookings/:id', authMiddleware, roleMiddleware(['admin']), async
 });
 
 // --- Schedule Routes ---
-app.get('/api/schedule', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.get('/api/schedule', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const bookings = await Booking.find({ status: { $in: ['Assigned', 'Completed', 'Pending NA Selection'] } })
       .populate('selectedCaregiver', 'caregiverName contactNumber')
@@ -768,7 +768,7 @@ app.get('/api/schedule', authMiddleware, roleMiddleware(['admin']), async (req, 
   }
 });
 
-app.get('/api/caregivers/:id/availability', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.get('/api/caregivers/:id/availability', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const caregiver = await Caregiver.findById(req.params.id);
     if (!caregiver) return sendError(res, 'Caregiver not found', 404);
@@ -779,7 +779,7 @@ app.get('/api/caregivers/:id/availability', authMiddleware, roleMiddleware(['adm
 });
 
 // --- Invoice Lock/Unlock Routes ---
-app.patch('/api/invoices/:invoiceNumber/lock', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.patch('/api/invoices/:invoiceNumber/lock', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const invoice = await Invoice.findOne({ invoiceNumber: req.params.invoiceNumber });
     if (!invoice) return sendError(res, 'Invoice not found', 404);
@@ -793,7 +793,7 @@ app.patch('/api/invoices/:invoiceNumber/lock', authMiddleware, roleMiddleware(['
   }
 });
 
-app.patch('/api/invoices/:invoiceNumber/unlock', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.patch('/api/invoices/:invoiceNumber/unlock', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const invoice = await Invoice.findOne({ invoiceNumber: req.params.invoiceNumber });
     if (!invoice) return sendError(res, 'Invoice not found', 404);
@@ -879,7 +879,7 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
 });
 
 // --- Parent Routes ---
-app.post('/api/parents', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.post('/api/parents', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const parent = new Parent(req.body);
     await parent.save();
@@ -892,7 +892,7 @@ app.post('/api/parents', authMiddleware, roleMiddleware(['admin']), async (req, 
   }
 });
 
-app.get('/api/parents', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.get('/api/parents', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const parents = await Parent.find().sort({ parentName: 1 });
     sendSuccess(res, parents, 'Parents fetched');
@@ -901,7 +901,7 @@ app.get('/api/parents', authMiddleware, roleMiddleware(['admin']), async (req, r
   }
 });
 
-app.get('/api/parents/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.get('/api/parents/:id', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const parent = await Parent.findById(req.params.id);
     if (!parent) return sendError(res, 'Parent not found', 404);
@@ -911,7 +911,7 @@ app.get('/api/parents/:id', authMiddleware, roleMiddleware(['admin']), async (re
   }
 });
 
-app.get('/api/parents/:id/bookings', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.get('/api/parents/:id/bookings', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const bookings = await Booking.find({ parent: req.params.id })
       .populate('selectedCaregiver', 'caregiverName contactNumber')
@@ -922,7 +922,7 @@ app.get('/api/parents/:id/bookings', authMiddleware, roleMiddleware(['admin']), 
   }
 });
 
-app.put('/api/parents/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.put('/api/parents/:id', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const parent = await Parent.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
     if (!parent) return sendError(res, 'Parent not found', 404);
@@ -936,7 +936,7 @@ app.put('/api/parents/:id', authMiddleware, roleMiddleware(['admin']), async (re
 });
 
 // --- Caregiver Routes ---
-app.post('/api/caregivers', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.post('/api/caregivers', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const caregiver = new Caregiver(req.body);
     await caregiver.save();
@@ -949,7 +949,7 @@ app.post('/api/caregivers', authMiddleware, roleMiddleware(['admin']), async (re
   }
 });
 
-app.get('/api/caregivers', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.get('/api/caregivers', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const caregivers = await Caregiver.find().sort({ caregiverName: 1 });
     sendSuccess(res, caregivers, 'Caregivers fetched');
@@ -958,7 +958,7 @@ app.get('/api/caregivers', authMiddleware, roleMiddleware(['admin']), async (req
   }
 });
 
-app.get('/api/caregivers/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.get('/api/caregivers/:id', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const caregiver = await Caregiver.findById(req.params.id);
     if (!caregiver) return sendError(res, 'Caregiver not found', 404);
@@ -968,7 +968,7 @@ app.get('/api/caregivers/:id', authMiddleware, roleMiddleware(['admin']), async 
   }
 });
 
-app.put('/api/caregivers/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.put('/api/caregivers/:id', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const caregiver = await Caregiver.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
     if (!caregiver) return sendError(res, 'Caregiver not found', 404);
@@ -982,7 +982,7 @@ app.put('/api/caregivers/:id', authMiddleware, roleMiddleware(['admin']), async 
 });
 
 // Caregiver Stats
-app.get('/api/caregivers/:id/stats', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.get('/api/caregivers/:id/stats', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const caregiver = await Caregiver.findById(req.params.id);
     if (!caregiver) return sendError(res, 'Caregiver not found', 404);
@@ -1015,7 +1015,7 @@ app.get('/api/caregivers/:id/stats', authMiddleware, roleMiddleware(['admin']), 
 });
 
 // 2. Get All Invoices - ONLY admin
-app.get('/api/invoices', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.get('/api/invoices', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const { status, customerPaymentStatus, caregiverPayoutStatus, startDate, endDate } = req.query;
     const query = {};
@@ -1059,7 +1059,7 @@ app.get('/api/invoices/:invoiceNumber', authMiddleware, async (req, res) => {
   }
 });
 // 4. Update Customer Payment - ONLY admin
-app.post('/api/invoices/:invoiceNumber/payments', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.post('/api/invoices/:invoiceNumber/payments', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const invoice = await Invoice.findOne({ invoiceNumber: req.params.invoiceNumber });
     if (!invoice) return sendError(res, 'Invoice not found', 404);
@@ -1096,7 +1096,7 @@ app.post('/api/invoices/:invoiceNumber/payments', authMiddleware, roleMiddleware
 
 
 // 5. Update Caregiver Payout - ONLY admin
-app.post('/api/invoices/:invoiceNumber/payouts', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.post('/api/invoices/:invoiceNumber/payouts', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const invoice = await Invoice.findOne({ invoiceNumber: req.params.invoiceNumber });
     if (!invoice) return sendError(res, 'Invoice not found', 404);
@@ -1131,7 +1131,7 @@ app.post('/api/invoices/:invoiceNumber/payouts', authMiddleware, roleMiddleware(
 });
 
 // 6. Update Invoice Data - ONLY admin
-app.put('/api/invoices/:invoiceNumber', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.put('/api/invoices/:invoiceNumber', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const invoice = await Invoice.findOne({ invoiceNumber: req.params.invoiceNumber });
     if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
@@ -1191,7 +1191,7 @@ app.put('/api/invoices/:invoiceNumber', authMiddleware, roleMiddleware(['admin']
 });
 
 // 7. Update Invoice Status Directly - ONLY admin
-app.patch('/api/invoices/:invoiceNumber/status', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.patch('/api/invoices/:invoiceNumber/status', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const { customerPaymentStatus, caregiverPayoutStatus } = req.body;
     const invoice = await Invoice.findOne({ invoiceNumber: req.params.invoiceNumber });
@@ -1219,7 +1219,7 @@ app.patch('/api/invoices/:invoiceNumber/status', authMiddleware, roleMiddleware(
 });
 
 // 8. Delete Invoice - ONLY admin
-app.delete('/api/invoices/:invoiceNumber', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.delete('/api/invoices/:invoiceNumber', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const invoice = await Invoice.findOneAndDelete({ invoiceNumber: req.params.invoiceNumber });
     if (!invoice) return sendError(res, 'Invoice not found', 404);
@@ -1373,7 +1373,7 @@ app.get('/api/logs', authMiddleware, roleMiddleware(['admin']), async (req, res)
 });
 
 // --- Parent Routes Delete ---
-app.delete('/api/parents/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.delete('/api/parents/:id', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const parentId = req.params.id;
     await Parent.findByIdAndDelete(parentId);
@@ -1396,7 +1396,7 @@ app.delete('/api/parents/:id', authMiddleware, roleMiddleware(['admin']), async 
 });
 
 // --- Caregiver Routes Delete ---
-app.delete('/api/caregivers/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+app.delete('/api/caregivers/:id', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const caregiverId = req.params.id;
     await Caregiver.findByIdAndDelete(caregiverId);
