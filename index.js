@@ -567,14 +567,14 @@ app.post('/api/bookings/:id/generate-invoice', authMiddleware, roleMiddleware(['
       booking: booking._id,
       parent: null,
       caregiver: booking.selectedCaregiver || null,
-      dutyType: booking.dutyType,
+      dutyType: booking.dutyType || 'Newborn Service',
       servicePackage: booking.servicePackage,
       amount,
       platformFeeRate,
       platformFee,
       date: new Date(),
-      serviceStartDate: booking.requestedDates[0],
-      serviceEndDate: booking.requestedDates[booking.requestedDates.length - 1],
+      serviceStartDate: booking.requestedDates?.[0] || null,
+      serviceEndDate: booking.requestedDates?.[booking.requestedDates.length - 1] || null,
       invoiceStatus: 'Created'
     });
     await invoice.save();
