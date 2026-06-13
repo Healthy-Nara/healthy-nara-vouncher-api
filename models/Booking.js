@@ -5,6 +5,11 @@ const suggestedCaregiverSchema = new mongoose.Schema({
   caregiverName: { type: String }
 }, { _id: false });
 
+const additionalChargeSchema = new mongoose.Schema({
+  name:   { type: String, required: true },
+  amount: { type: Number, required: true }
+}, { _id: false });
+
 const bookingSchema = new mongoose.Schema({
   bookingNumber:  { type: String, required: true, unique: true },
   lead:           { type: mongoose.Schema.Types.ObjectId, ref: 'Lead' },
@@ -25,7 +30,8 @@ const bookingSchema = new mongoose.Schema({
   dutyDuration:      { type: String },
   dutyShift:         { type: String },
   dutyStartingtime:  { type: Date },
-  additionalNotes:   { type: String }
+  additionalNotes:   { type: String },
+  additionalCharges: [additionalChargeSchema]
 }, { timestamps: true });
 
 export const Booking = mongoose.model('Booking', bookingSchema);
