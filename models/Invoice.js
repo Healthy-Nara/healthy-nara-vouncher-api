@@ -1,5 +1,10 @@
 import mongoose from 'mongoose';
 
+const additionalChargeSchema = new mongoose.Schema({
+  name:   { type: String, required: true },
+  amount: { type: Number, required: true }
+}, { _id: false });
+
 const invoiceSchema = new mongoose.Schema({
   invoiceNumber: { type: String, required: true, unique: true },
   parent: { type: mongoose.Schema.Types.ObjectId, ref: 'Parent' },
@@ -21,7 +26,8 @@ const invoiceSchema = new mongoose.Schema({
   isLocked: { type: Boolean, default: false },
   customerPaymentStatus: { type: String, enum: ['Pending', 'Received'], default: 'Pending' },
   caregiverPayoutStatus: { type: String, enum: ['Pending', 'Paid'], default: 'Pending' },
-  status: { type: String, enum: ['Pending', 'Completed'], default: 'Pending' }
+  status: { type: String, enum: ['Pending', 'Completed'], default: 'Pending' },
+  additionalCharges: [additionalChargeSchema]
 }, { timestamps: true });
 
 export const Invoice = mongoose.model('Invoice', invoiceSchema);

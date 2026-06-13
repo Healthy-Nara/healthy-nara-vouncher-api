@@ -575,6 +575,7 @@ app.post('/api/bookings/:id/generate-invoice', authMiddleware, roleMiddleware(['
       date: new Date(),
       serviceStartDate: booking.requestedDates?.[0] || null,
       serviceEndDate: booking.requestedDates?.[booking.requestedDates.length - 1] || null,
+      additionalCharges: booking.additionalCharges || [],
       invoiceStatus: 'Created'
     });
     await invoice.save();
