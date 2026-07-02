@@ -555,7 +555,7 @@ app.post('/api/bookings/:id/generate-invoice', authMiddleware, roleMiddleware(['
     const { amount, platformFeeRate = 10, platformFeeType = 'percentage' } = req.body;
     const booking = await Booking.findById(req.params.id).populate('selectedCaregiver');
     if (!booking) return sendError(res, 'Booking not found', 404);
-    if (booking.status !== 'Assigned') return sendError(res, 'Booking must be Assigned first', 400);
+    if (!['Assigned', 'Completed'].includes(booking.status)) return sendError(res, 'Booking must be Assigned or Completed first', 400);
 
     const invoiceNumber = await generateInvoiceNumber();
     const platformFee = platformFeeType === 'fixed' ? platformFeeRate : (amount * platformFeeRate) / 100;
