@@ -524,7 +524,7 @@ app.patch('/api/bookings/:id/status', authMiddleware, roleMiddleware(['admin', '
     booking.status = status;
     await booking.save();
 
-    if (status === 'Cancelled' && booking.selectedCaregiver) {
+    if ((status === 'Cancelled' || status === 'Completed') && booking.selectedCaregiver) {
       const caregiver = await Caregiver.findById(booking.selectedCaregiver);
       if (caregiver && caregiver.availability) {
         for (const date of booking.requestedDates) {
