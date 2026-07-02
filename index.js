@@ -552,13 +552,13 @@ app.patch('/api/bookings/:id/status', authMiddleware, roleMiddleware(['admin', '
 
 app.post('/api/bookings/:id/generate-invoice', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
-    const { amount, platformFeeRate = 10 } = req.body;
+    const { amount, platformFeeRate = 10, platformFeeType = 'percentage' } = req.body;
     const booking = await Booking.findById(req.params.id).populate('selectedCaregiver');
     if (!booking) return sendError(res, 'Booking not found', 404);
     if (booking.status !== 'Assigned') return sendError(res, 'Booking must be Assigned first', 400);
 
     const invoiceNumber = await generateInvoiceNumber();
-    const platformFee = (amount * platformFeeRate) / 100;
+    const platformFee = platformFeeType === 'fixed' ? platformFeeRate : (amount * platformFeeRate) / 100;
 
     const invoice = new Invoice({
       invoiceNumber,
@@ -570,6 +570,7 @@ app.post('/api/bookings/:id/generate-invoice', authMiddleware, roleMiddleware(['
       dutyType: booking.dutyType || 'Newborn Service',
       servicePackage: booking.servicePackage,
       amount,
+      platformFeeType,
       platformFeeRate,
       platformFee,
       date: new Date(),
@@ -834,7 +835,7 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
     const { 
       customerName, caregiverName, dutyType, servicePackage, 
       amount, date, serviceStartDate, serviceEndDate, dueDate, 
-      parentId, caregiverId, platformFeeRate = 10 
+      parentId, caregiverId, platformFeeRate = 10, platformFeeType = 'percentage' 
     } = req.body;
     
     let resolvedName = customerName;
@@ -850,7 +851,7 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
     }
     
     const invoiceNumber = await generateInvoiceNumber();
-    const platformFee = (amount * platformFeeRate) / 100;
+    const platformFee = platformFeeType === 'fixed' ? platformFeeRate : (amount * platformFeeRate) / 100;
     
     const invoice = new Invoice({
       invoiceNumber,
@@ -861,6 +862,7 @@ app.post('/api/invoices', authMiddleware, async (req, res) => {
       dutyType,
       servicePackage,
       amount,
+      platformFeeType,
       platformFeeRate,
       platformFee,
       date,
@@ -1140,7 +1142,7 @@ app.put('/api/invoices/:invoiceNumber', authMiddleware, roleMiddleware(['admin',
     const { 
       customerName, caregiverName, amount, dutyType, servicePackage, 
       date, serviceStartDate, serviceEndDate, dueDate, 
-      paymentMethod, parentId, caregiverId, platformFeeRate 
+      paymentMethod, parentId, caregiverId, platformFeeRate, platformFeeType 
     } = req.body;
 
     if (customerName !== undefined) invoice.customerName = customerName;
@@ -1173,11 +1175,14 @@ app.put('/api/invoices/:invoiceNumber', authMiddleware, roleMiddleware(['admin',
     if (serviceEndDate !== undefined) invoice.serviceEndDate = serviceEndDate;
     if (dueDate !== undefined) invoice.dueDate = dueDate;
     if (paymentMethod !== undefined) invoice.paymentMethod = paymentMethod;
+    if (platformFeeType !== undefined) invoice.platformFeeType = platformFeeType;
     if (platformFeeRate !== undefined) invoice.platformFeeRate = platformFeeRate;
 
-    // Recalculate platformFee if amount or platformFeeRate was updated
-    if (amount !== undefined || platformFeeRate !== undefined) {
-      invoice.platformFee = (invoice.amount * invoice.platformFeeRate) / 100;
+    // Recalculate platformFee if amount, platformFeeRate, or platformFeeType was updated
+    if (amount !== undefined || platformFeeRate !== undefined || platformFeeType !== undefined) {
+      invoice.platformFee = invoice.platformFeeType === 'fixed'
+        ? invoice.platformFeeRate
+        : (invoice.amount * invoice.platformFeeRate) / 100;
     }
 
     await invoice.save();

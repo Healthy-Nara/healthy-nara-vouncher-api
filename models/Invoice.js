@@ -15,6 +15,7 @@ const invoiceSchema = new mongoose.Schema({
   dutyType: { type: String, required: true, default: 'Newborn Service' },
   servicePackage: { type: String, enum: ['Newborn Service', 'Childcare Service', 'N/A'], default: 'N/A' },
   amount: { type: Number, required: true },
+  platformFeeType: { type: String, enum: ['percentage', 'fixed'], default: 'percentage' },
   platformFeeRate: { type: Number, default: 10 },
   platformFee: { type: Number, default: 0 },
   date: { type: Date, required: true },
