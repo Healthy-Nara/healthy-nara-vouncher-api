@@ -21,6 +21,8 @@ import { Caregiver } from './models/Caregiver.js';
 import { Log } from './models/Log.js';
 import { Lead } from './models/Lead.js';
 import { Booking } from './models/Booking.js';
+import { DailyReport } from './models/DailyReport.js';
+import { DutyLog } from './models/DutyLog.js';
 
 const app = express();
 
@@ -58,6 +60,44 @@ const roleMiddleware = (roles) => (req, res, next) => {
     return sendError(res, 'Access denied', 403);
   }
   next();
+};
+
+// --- NA Auth Middleware ---
+const naAuthMiddleware = async (req, res, next) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return sendError(res, 'No token provided', 401);
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const caregiver = await Caregiver.findById(decoded.id);
+    if (!caregiver) return sendError(res, 'NA not found', 401);
+
+    req.caregiver = caregiver;
+    next();
+  } catch (err) {
+    sendError(res, 'Invalid token', 401);
+  }
+};
+
+// Helper: Generate unique username from name
+const generateUsername = async (name) => {
+  const base = name.toLowerCase().replace(/\s/g, '');
+  let username = base;
+  let counter = 1;
+  
+  while (await Caregiver.findOne({ username })) {
+    username = `${base}${counter}`;
+    counter++;
+  }
+  
+  return username;
+};
+
+// Extract password from NRC (last numeric part)
+const extractPassword = (nrc) => {
+  if (!nrc) return '123456';
+  const match = nrc.match(/(\d+)$/);  // "12/lamana(P)001233" → "001233"
+  return match ? match[1] : '123456';
 };
 
 // --- Response Helpers ---
@@ -477,7 +517,7 @@ app.get('/api/bookings/:id/match', authMiddleware, roleMiddleware(['admin', 'sta
 app.patch('/api/bookings/:id/assign', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
     const { caregiverId } = req.body;
-    const booking = await Booking.findById(req.params.id);
+    const booking = await Booking.findById(req.params.id).populate('parent');
     if (!booking) return sendError(res, 'Booking not found', 404);
 
     const caregiver = await Caregiver.findById(caregiverId);
@@ -499,6 +539,33 @@ app.patch('/api/bookings/:id/assign', authMiddleware, roleMiddleware(['admin', '
       }
     }
     await caregiver.save();
+
+    // Auto-create DailyReport forms for each date and child
+    const parent = await Parent.findById(booking.parent);
+    const children = parent?.children || [{ childName: booking.customerName }];
+    
+    for (const date of booking.requestedDates) {
+      for (const child of children) {
+        const existingReport = await DailyReport.findOne({
+          caregiver: caregiver._id,
+          booking: booking._id,
+          date: date,
+          childName: child.childName
+        });
+        
+        if (!existingReport) {
+          await DailyReport.create({
+            caregiver: caregiver._id,
+            caregiverName: caregiver.caregiverName,
+            parent: booking.parent,
+            childName: child.childName,
+            booking: booking._id,
+            date: date,
+            status: 'draft'
+          });
+        }
+      }
+    }
 
     // Update Lead stage
     await Lead.findByIdAndUpdate(booking.lead, { stage: 'Active Customer' });
@@ -941,12 +1008,29 @@ app.put('/api/parents/:id', authMiddleware, roleMiddleware(['admin', 'staff']), 
 // --- Caregiver Routes ---
 app.post('/api/caregivers', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
-    const caregiver = new Caregiver(req.body);
+    const { caregiverName, NRC, ...otherData } = req.body;
+    
+    // Auto-generate username from name
+    const username = await generateUsername(caregiverName);
+    
+    // Extract password from NRC digits (e.g., "12/lamana(P)001233" → "001233")
+    const password = extractPassword(NRC);
+    
+    const caregiver = new Caregiver({
+      caregiverName,
+      NRC,
+      username,
+      password,
+      ...otherData
+    });
     await caregiver.save();
 
     await createLog(req, 'Create Caregiver', 'Caregiver', caregiver._id.toString(), `Caregiver ${caregiver.caregiverName} created`);
 
-    sendSuccess(res, caregiver, 'Caregiver created', 201);
+    sendSuccess(res, {
+      ...caregiver.toObject(),
+      temporaryPassword: password
+    }, 'Caregiver created', 201);
   } catch (e) {
     sendError(res, e.message, 400);
   }
@@ -973,12 +1057,33 @@ app.get('/api/caregivers/:id', authMiddleware, roleMiddleware(['admin', 'staff']
 
 app.put('/api/caregivers/:id', authMiddleware, roleMiddleware(['admin', 'staff']), async (req, res) => {
   try {
-    const caregiver = await Caregiver.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
-    if (!caregiver) return sendError(res, 'Caregiver not found', 404);
+    const { caregiverName, NRC, ...otherData } = req.body;
+    
+    const existingCaregiver = await Caregiver.findById(req.params.id);
+    if (!existingCaregiver) return sendError(res, 'Caregiver not found', 404);
 
-    await createLog(req, 'Update Caregiver', 'Caregiver', caregiver._id.toString(), `Caregiver ${caregiver.caregiverName} updated`);
+    // Update username if name changed
+    let username = existingCaregiver.username;
+    if (caregiverName && caregiverName !== existingCaregiver.caregiverName) {
+      username = await generateUsername(caregiverName);
+    }
 
-    sendSuccess(res, caregiver, 'Caregiver updated');
+    // Note: Password is NOT updated when NRC changes
+    // Password can only be changed via NA's own password change endpoint
+
+    // Update other fields
+    Object.assign(existingCaregiver, {
+      caregiverName: caregiverName || existingCaregiver.caregiverName,
+      NRC: NRC || existingCaregiver.NRC,
+      username,
+      ...otherData
+    });
+    
+    await existingCaregiver.save();
+
+    await createLog(req, 'Update Caregiver', 'Caregiver', existingCaregiver._id.toString(), `Caregiver ${existingCaregiver.caregiverName} updated`);
+
+    sendSuccess(res, existingCaregiver, 'Caregiver updated');
   } catch (error) {
     sendError(res, error.message, 400);
   }
@@ -1422,6 +1527,409 @@ app.delete('/api/caregivers/:id', authMiddleware, roleMiddleware(['admin', 'staf
   } catch (error) {
     console.error('>>> DELETE CAREGIVER ERROR:', error);
     sendError(res, error.message, 500);
+  }
+});
+
+// --- NA Auth Routes ---
+app.post('/api/na/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return sendError(res, 'Username and password are required');
+    }
+
+    const caregiver = await Caregiver.findOne({ username: username.toLowerCase() });
+    if (!caregiver || !(await caregiver.comparePassword(password))) {
+      return sendError(res, 'Invalid credentials', 401);
+    }
+
+    const token = jwt.sign({ id: caregiver._id, type: 'na' }, process.env.JWT_SECRET, { expiresIn: '7d' });
+
+    sendSuccess(res, { 
+      token, 
+      caregiver: { 
+        id: caregiver._id, 
+        username: caregiver.username, 
+        name: caregiver.caregiverName 
+      } 
+    }, 'Login successful');
+  } catch (err) {
+    sendError(res, err.message, 400);
+  }
+});
+
+app.get('/api/na/auth/me', naAuthMiddleware, (req, res) => {
+  sendSuccess(res, { 
+    caregiver: { 
+      id: req.caregiver._id, 
+      username: req.caregiver.username, 
+      name: req.caregiver.caregiverName 
+    } 
+  });
+});
+
+app.put('/api/na/auth/change-password', naAuthMiddleware, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const caregiver = req.caregiver;
+
+    // Verify current password
+    const isMatch = await caregiver.comparePassword(currentPassword);
+    if (!isMatch) {
+      return sendError(res, 'လက်ရှိ password မမှန်ကန်ပါ');
+    }
+
+    // Set new password
+    caregiver.password = newPassword;
+    await caregiver.save();
+
+    sendSuccess(res, null, 'Password ပြောင်းပြီးပါပြီ');
+  } catch (err) {
+    sendError(res, err.message, 400);
+  }
+});
+
+// --- NA Duty Routes ---
+app.post('/api/na/duty/start', naAuthMiddleware, async (req, res) => {
+  try {
+    const { bookingId } = req.body;
+    const caregiver = req.caregiver;
+
+    // Check for active duty
+    const activeDuty = await DutyLog.findOne({ 
+      caregiver: caregiver._id, 
+      status: 'active' 
+    });
+    if (activeDuty) {
+      return sendError(res, 'You already have an active duty. Finish it first.');
+    }
+
+    // Get booking details
+    const booking = await Booking.findById(bookingId);
+    if (!booking) {
+      return sendError(res, 'Booking not found');
+    }
+
+    const dutyLog = new DutyLog({
+      caregiver: caregiver._id,
+      caregiverName: caregiver.caregiverName,
+      booking: booking._id,
+      parent: booking.parent,
+      childName: booking.childName,
+      date: new Date(),
+      dutyStart: new Date(),
+      status: 'active'
+    });
+    await dutyLog.save();
+
+    sendSuccess(res, dutyLog, 'Duty started', 201);
+  } catch (err) {
+    sendError(res, err.message, 400);
+  }
+});
+
+app.post('/api/na/duty/finish', naAuthMiddleware, async (req, res) => {
+  try {
+    const { dutyLogId } = req.body;
+    const caregiver = req.caregiver;
+
+    const dutyLog = await DutyLog.findOne({ 
+      _id: dutyLogId, 
+      caregiver: caregiver._id, 
+      status: 'active' 
+    });
+    if (!dutyLog) {
+      return sendError(res, 'Active duty log not found');
+    }
+
+    dutyLog.dutyEnd = new Date();
+    dutyLog.status = 'completed';
+    await dutyLog.save();
+
+    sendSuccess(res, dutyLog, 'Duty finished');
+  } catch (err) {
+    sendError(res, err.message, 400);
+  }
+});
+
+app.get('/api/na/duty/status', naAuthMiddleware, async (req, res) => {
+  try {
+    const caregiver = req.caregiver;
+    const activeDuty = await DutyLog.findOne({ 
+      caregiver: caregiver._id, 
+      status: 'active' 
+    }).populate('booking');
+
+    sendSuccess(res, { activeDuty });
+  } catch (err) {
+    sendError(res, err.message, 400);
+  }
+});
+
+// --- NA Report Routes ---
+app.post('/api/na/reports', naAuthMiddleware, async (req, res) => {
+  try {
+    const caregiver = req.caregiver;
+    const { 
+      bookingId, date, childName, 
+      feedingRecords, supplementaryFood,
+      hygiene, sleepRecords, activities, 
+      abnormalities, status 
+    } = req.body;
+
+    // Check if report already exists for this date and booking
+    const existingReport = await DailyReport.findOne({
+      caregiver: caregiver._id,
+      booking: bookingId,
+      date: new Date(date)
+    });
+
+    if (existingReport) {
+      // Update existing report
+      Object.assign(existingReport, {
+        feedingRecords, supplementaryFood,
+        hygiene, sleepRecords, activities,
+        abnormalities, status,
+        submittedAt: status === 'submitted' ? new Date() : undefined
+      });
+      await existingReport.save();
+      return sendSuccess(res, existingReport, 'Report updated');
+    }
+
+    // Get booking for parent reference
+    const booking = await Booking.findById(bookingId);
+
+    const report = new DailyReport({
+      caregiver: caregiver._id,
+      caregiverName: caregiver.caregiverName,
+      parent: booking?.parent,
+      childName,
+      booking: bookingId,
+      date: new Date(date),
+      feedingRecords, supplementaryFood,
+      hygiene, sleepRecords, activities,
+      abnormalities,
+      status: status || 'draft',
+      submittedAt: status === 'submitted' ? new Date() : undefined
+    });
+    await report.save();
+
+    sendSuccess(res, report, 'Report created', 201);
+  } catch (err) {
+    sendError(res, err.message, 400);
+  }
+});
+
+app.get('/api/na/reports', naAuthMiddleware, async (req, res) => {
+  try {
+    const caregiver = req.caregiver;
+    const { date } = req.query;
+
+    const filter = { caregiver: caregiver._id };
+    if (date) {
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+      filter.date = { $gte: startOfDay, $lte: endOfDay };
+    }
+
+    const reports = await DailyReport.find(filter)
+      .sort({ date: -1 })
+      .populate('booking');
+
+    sendSuccess(res, reports);
+  } catch (err) {
+    sendError(res, err.message, 400);
+  }
+});
+
+app.get('/api/na/reports/:id', naAuthMiddleware, async (req, res) => {
+  try {
+    const report = await DailyReport.findOne({ 
+      _id: req.params.id, 
+      caregiver: req.caregiver._id 
+    }).populate('booking');
+    
+    if (!report) {
+      return sendError(res, 'Report not found');
+    }
+    sendSuccess(res, report);
+  } catch (err) {
+    sendError(res, err.message, 400);
+  }
+});
+
+app.put('/api/na/reports/:id', naAuthMiddleware, async (req, res) => {
+  try {
+    const report = await DailyReport.findOne({ 
+      _id: req.params.id, 
+      caregiver: req.caregiver._id 
+    });
+    
+    if (!report) {
+      return sendError(res, 'Report not found');
+    }
+    if (report.status === 'submitted') {
+      return sendError(res, 'Cannot edit submitted report');
+    }
+
+    const { 
+      feedingRecords, supplementaryFood,
+      hygiene, sleepRecords, activities,
+      abnormalities, status 
+    } = req.body;
+
+    Object.assign(report, {
+      feedingRecords, supplementaryFood,
+      hygiene, sleepRecords, activities,
+      abnormalities, status,
+      submittedAt: status === 'submitted' ? new Date() : report.submittedAt
+    });
+    await report.save();
+
+    sendSuccess(res, report, 'Report updated');
+  } catch (err) {
+    sendError(res, err.message, 400);
+  }
+});
+
+app.delete('/api/na/reports/:id', naAuthMiddleware, async (req, res) => {
+  try {
+    const report = await DailyReport.findOne({ 
+      _id: req.params.id, 
+      caregiver: req.caregiver._id 
+    });
+    
+    if (!report) {
+      return sendError(res, 'Report not found');
+    }
+    if (report.status === 'submitted') {
+      return sendError(res, 'Cannot delete submitted report');
+    }
+
+    await DailyReport.findByIdAndDelete(req.params.id);
+    sendSuccess(res, null, 'Report deleted');
+  } catch (err) {
+    sendError(res, err.message, 400);
+  }
+});
+
+// --- Admin NA Routes ---
+app.get('/api/admin/na-reports', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+  try {
+    const { date, caregiverId, status } = req.query;
+    const filter = {};
+
+    if (date) {
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+      filter.date = { $gte: startOfDay, $lte: endOfDay };
+    }
+    if (caregiverId) filter.caregiver = caregiverId;
+    if (status) filter.status = status;
+
+    const reports = await DailyReport.find(filter)
+      .sort({ date: -1 })
+      .populate('caregiver', 'caregiverName')
+      .populate('booking');
+
+    sendSuccess(res, reports);
+  } catch (err) {
+    sendError(res, err.message, 400);
+  }
+});
+
+app.get('/api/admin/na-reports/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+  try {
+    const report = await DailyReport.findById(req.params.id)
+      .populate('caregiver', 'caregiverName')
+      .populate('booking');
+    
+    if (!report) {
+      return sendError(res, 'Report not found');
+    }
+    sendSuccess(res, report);
+  } catch (err) {
+    sendError(res, err.message, 400);
+  }
+});
+
+app.get('/api/admin/duty-logs', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+  try {
+    const { date, caregiverId } = req.query;
+    const filter = {};
+
+    if (date) {
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+      filter.date = { $gte: startOfDay, $lte: endOfDay };
+    }
+    if (caregiverId) filter.caregiver = caregiverId;
+
+    const logs = await DutyLog.find(filter)
+      .sort({ dutyStart: -1 })
+      .populate('caregiver', 'caregiverName')
+      .populate('booking');
+
+    sendSuccess(res, logs);
+  } catch (err) {
+    sendError(res, err.message, 400);
+  }
+});
+
+// --- Family Routes (Public, token-based) ---
+app.get('/api/family/:token/reports', async (req, res) => {
+  try {
+    const { token } = req.params;
+    
+    // Find booking by token to get parent reference
+    const booking = await Booking.findOne({ bookingToken: token });
+    if (!booking) {
+      return sendError(res, 'Invalid token');
+    }
+
+    const reports = await DailyReport.find({ 
+      parent: booking.parent,
+      booking: booking._id 
+    })
+    .sort({ date: -1 })
+    .populate('caregiver', 'caregiverName');
+
+    sendSuccess(res, { reports, booking });
+  } catch (err) {
+    sendError(res, err.message, 400);
+  }
+});
+
+app.get('/api/family/:token/reports/:date', async (req, res) => {
+  try {
+    const { token, date } = req.params;
+    
+    const booking = await Booking.findOne({ bookingToken: token });
+    if (!booking) {
+      return sendError(res, 'Invalid token');
+    }
+
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const report = await DailyReport.findOne({ 
+      parent: booking.parent,
+      booking: booking._id,
+      date: { $gte: startOfDay, $lte: endOfDay }
+    })
+    .populate('caregiver', 'caregiverName');
+
+    sendSuccess(res, report);
+  } catch (err) {
+    sendError(res, err.message, 400);
   }
 });
 
