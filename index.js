@@ -45,11 +45,22 @@ const authMiddleware = async (req, res, next) => {
     if (!token) return sendError(res, 'No token provided', 401);
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    
+    // Try User first
     const user = await User.findById(decoded.id);
-    if (!user) return sendError(res, 'User not found', 401);
-
-    req.user = user;
-    next();
+    if (user) {
+      req.user = user;
+      return next();
+    }
+    
+    // Fallback to Caregiver (NA)
+    const caregiver = await Caregiver.findById(decoded.id);
+    if (caregiver) {
+      req.user = { _id: caregiver._id, username: caregiver.username, role: 'staff' };
+      return next();
+    }
+    
+    return sendError(res, 'User not found', 401);
   } catch (err) {
     sendError(res, 'Invalid token', 401);
   }
