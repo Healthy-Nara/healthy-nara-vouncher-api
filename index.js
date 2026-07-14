@@ -171,7 +171,6 @@ mongoose.connect(MONGODB_URI)
   .then(() => console.log('Connected to MongoDB'))
   .catch(err => {
     console.error('MongoDB connection error details:', err);
-    process.exit(1); // Exit if connection fails
   });
 
 // --- Helper Functions ---
@@ -1971,10 +1970,8 @@ const server = http.createServer((req, res) => {
   app(req, res);
 });
 
-if (process.env.NODE_ENV !== 'production') {
-  server.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on port ${PORT} (0.0.0.0)`);
-  });
-}
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on port ${PORT} (0.0.0.0)`);
+});
 
 export default app;
