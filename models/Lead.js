@@ -20,7 +20,8 @@ const leadSchema = new mongoose.Schema({
   assignedStaffName: { type: String },
   tags:            [{ type: String }],
   lostReason:      { type: String },
-  notes:           { type: String }
+  notes:           { type: String },
+  date:            { type: Date, default: Date.now }
 }, { timestamps: true });
 
 export const Lead = mongoose.model('Lead', leadSchema);
