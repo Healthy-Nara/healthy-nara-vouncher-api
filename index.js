@@ -32,7 +32,7 @@ import { DutyLog } from "./models/DutyLog.js";
 import { Ticket } from "./models/Ticket.js";
 import { TicketComment } from "./models/TicketComment.js";
 import { TicketHistory } from "./models/TicketHistory.js";
-import { initTelegramWebhook, notifyTicketAssigned, processTicketCallback } from "./telegramService.js";
+import { initTelegramWebhook, notifyTicketAssigned, notifyTicketCommented, processIncomingMessage, processTicketCallback } from "./telegramService.js";
 
 const app = express();
 
@@ -2860,6 +2860,7 @@ app.post("/api/tickets/:id/comments", authMiddleware, roleMiddleware(["admin", "
     });
     await comment.save();
     await addTicketHistory(ticket._id, req.user._id, req.user.username, "Added comment");
+    notifyTicketCommented(ticket._id, req.user.username, message).catch(() => {});
     sendSuccess(res, comment, "Comment added", 201);
   } catch (error) {
     sendError(res, error.message, 400);
@@ -2953,6 +2954,9 @@ app.post("/api/telegram/webhook", async (req, res) => {
     const body = req.body;
     if (body.callback_query) {
       await processTicketCallback(body.callback_query);
+    }
+    if (body.message) {
+      await processIncomingMessage(body.message);
     }
     res.status(200).json({ ok: true });
   } catch (error) {

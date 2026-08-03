@@ -8,7 +8,12 @@ const ticketSchema = new mongoose.Schema({
   assigned_to:  { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   assignedName: { type: String },
   created_by:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  createdByName: { type: String }
+  createdByName: { type: String },
+  // Links the Telegram notification message back to this ticket so replies can be captured
+  telegramNotification: {
+    chatId: { type: String },    // e.g. "5123456789"
+    messageId: { type: Number }
+  }
 }, { timestamps: true });
 
 ticketSchema.index({ status: 1 });

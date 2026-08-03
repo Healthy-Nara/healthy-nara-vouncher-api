@@ -1,4 +1,7 @@
 import { Ticket } from './models/Ticket.js';
+import { TicketComment } from './models/TicketComment.js';
+import { TicketHistory } from './models/TicketHistory.js';
+import { User } from './models/User.js';
 
 // Stateless Telegram Bot API client using the global fetch (works on Vercel serverless).
 // If TELEGRAM_BOT_TOKEN is not set, every function is a safe no-op so the app still boots.
@@ -35,6 +38,17 @@ function buildKeyboard(ticketId, currentStatus) {
   };
 }
 
+// Shared full message so editing a status keeps the title/description/priority visible
+function formatTicketMessage(ticket) {
+  return (
+    `🎫 *${ticket.title}*\n` +
+    `${ticket.description || ''}` +
+    `\n\nPriority: ${ticket.priority}\n` +
+    `Status: ${ticket.status}\n\n` +
+    `အောက်မှာ button တစ်ခုခုနှိပ်ပြီး status ပြောင်းနိုင်ပါတယ်`
+  );
+}
+
 export async function notifyTicketAssigned(ticketId) {
   if (!process.env.TELEGRAM_BOT_TOKEN) return;
   const ticket = await Ticket.findById(ticketId)
@@ -45,20 +59,91 @@ export async function notifyTicketAssigned(ticketId) {
   const chatId = ticket.assigned_to.telegramChatId;
   if (!chatId) return;
 
-  const text =
-    `🎫 *New Ticket Assigned*\n\n` +
-    `*${ticket.title}*\n` +
-    `${ticket.description || ''}\n\n` +
-    `Priority: ${ticket.priority}\n` +
-    `Status: ${ticket.status}\n\n` +
-    `အောက်မှာ button တစ်ခုခုနှိပ်ပြီး status ပြောင်းနိုင်ပါတယ်`;
-
-  await callTelegram('sendMessage', {
+  const result = await callTelegram('sendMessage', {
     chat_id: chatId,
-    text,
+    text: formatTicketMessage(ticket),
     parse_mode: 'Markdown',
     reply_markup: buildKeyboard(ticketId, ticket.status)
   });
+
+  // Remember the sent message so replies to it can be mapped back to this ticket
+  if (result && result.ok && result.result) {
+    await Ticket.updateOne(
+      { _id: ticket._id },
+      { telegramNotification: { chatId: String(chatId), messageId: Number(result.result.message_id) } }
+    );
+  }
+}
+
+export async function notifyTicketCommented(ticketId, commenterName, message) {
+  if (!process.env.TELEGRAM_BOT_TOKEN) return;
+  const ticket = await Ticket.findById(ticketId)
+    .populate('assigned_to', 'telegramChatId username')
+    .populate('created_by', 'telegramChatId username');
+  if (!ticket) return;
+
+  const text =
+    `💬 *New comment on ${ticket.title}*\n\n` +
+    `*${commenterName}:* ${message}\n\n` +
+    `Status: ${ticket.status}`;
+
+  const recipients = [ticket.assigned_to, ticket.created_by]
+    .filter(Boolean)
+    // Don't notify the person who wrote the comment
+    .filter((u) => u.username !== commenterName)
+    // Deduplicate (assignee may be the creator)
+    .filter((u, i, arr) => arr.findIndex((x) => x._id.toString() === u._id.toString()) === i);
+
+  for (const recipient of recipients) {
+    if (!recipient.telegramChatId) continue;
+    await callTelegram('sendMessage', {
+      chat_id: recipient.telegramChatId,
+      text,
+      parse_mode: 'Markdown'
+    });
+  }
+}
+
+// Handle a plain-text message that is a reply to a ticket notification message.
+// Resolves the linked ticket via telegramNotification and stores the text as a comment.
+export async function processIncomingMessage(message) {
+  if (!message || !message.text || !message.reply_to_message) return;
+
+  const chatId = message.chat && message.chat.id;
+  const replyMessageId = message.reply_to_message.message_id;
+  if (chatId == null || replyMessageId == null) return;
+
+  const ticket = await Ticket.findOne({
+    'telegramNotification.chatId': String(chatId),
+    'telegramNotification.messageId': Number(replyMessageId)
+  });
+  if (!ticket) return; // not a reply to a ticket notification
+
+  const fromId = message.from && message.from.id;
+  const user = await User.findOne({ telegramChatId: String(fromId) });
+  if (!user) {
+    await callTelegram('sendMessage', {
+      chat_id: chatId,
+      text: '⚠️ သင့် Telegram ID ကို Accounts page မှာ မသတ်မှတ်ရသေးပါ — comment ထည့်နိုင်ဖို့ admin က သတ်မှတ်ပေးရပါမယ်။'
+    });
+    return;
+  }
+
+  await TicketComment.create({
+    ticket_id: ticket._id,
+    user_id: user._id,
+    userName: user.username,
+    message: message.text
+  });
+  await TicketHistory.create({
+    ticket_id: ticket._id,
+    user_id: user._id,
+    userName: user.username,
+    action_performed: 'Added comment'
+  });
+
+  await callTelegram('sendMessage', { chat_id: chatId, text: '✅ Comment ထည့်ပြီးပါပြီ' });
+  await notifyTicketCommented(ticket._id, user.username, message.text);
 }
 
 export async function processTicketCallback(callbackQuery) {
@@ -91,7 +176,7 @@ export async function processTicketCallback(callbackQuery) {
     await callTelegram('editMessageText', {
       chat_id: msg.chat.id,
       message_id: msg.message_id,
-      text: `🎫 *${ticket.title}*\n\nStatus: ${ticket.status}`,
+      text: formatTicketMessage(ticket),
       parse_mode: 'Markdown',
       reply_markup: buildKeyboard(ticketId, ticket.status)
     });
