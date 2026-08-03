@@ -1,5 +1,10 @@
 import mongoose from 'mongoose';
 
+const telegramLinkSchema = new mongoose.Schema({
+  chatId: { type: String },
+  messageId: { type: Number }
+}, { _id: false });
+
 const ticketSchema = new mongoose.Schema({
   title:        { type: String, required: true, trim: true },
   description:  { type: String, required: true },
@@ -9,11 +14,9 @@ const ticketSchema = new mongoose.Schema({
   assignedName: { type: String },
   created_by:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   createdByName: { type: String },
-  // Links the Telegram notification message back to this ticket so replies can be captured
-  telegramNotification: {
-    chatId: { type: String },    // e.g. "5123456789"
-    messageId: { type: Number }
-  }
+  // Every Telegram notification message (assign + each comment) is registered here,
+  // so replying to ANY of them maps back to this ticket and becomes a comment.
+  telegramNotifications: [telegramLinkSchema]
 }, { timestamps: true });
 
 ticketSchema.index({ status: 1 });

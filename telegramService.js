@@ -38,6 +38,16 @@ function buildKeyboard(ticketId, currentStatus) {
   };
 }
 
+// Register a sent Telegram message (chatId + messageId) on the ticket so replying
+// to that message can be mapped back to the ticket and stored as a comment.
+async function registerTelegramLink(ticketId, chatId, messageId) {
+  if (chatId == null || messageId == null) return;
+  await Ticket.updateOne(
+    { _id: ticketId },
+    { $push: { telegramNotifications: { chatId: String(chatId), messageId: Number(messageId) } } }
+  );
+}
+
 // Shared full message so editing a status keeps the title/description/priority visible
 function formatTicketMessage(ticket) {
   return (
@@ -68,10 +78,7 @@ export async function notifyTicketAssigned(ticketId) {
 
   // Remember the sent message so replies to it can be mapped back to this ticket
   if (result && result.ok && result.result) {
-    await Ticket.updateOne(
-      { _id: ticket._id },
-      { telegramNotification: { chatId: String(chatId), messageId: Number(result.result.message_id) } }
-    );
+    await registerTelegramLink(ticket._id, chatId, result.result.message_id);
   }
 }
 
@@ -96,16 +103,20 @@ export async function notifyTicketCommented(ticketId, commenterName, message) {
 
   for (const recipient of recipients) {
     if (!recipient.telegramChatId) continue;
-    await callTelegram('sendMessage', {
+    const result = await callTelegram('sendMessage', {
       chat_id: recipient.telegramChatId,
       text,
       parse_mode: 'Markdown'
     });
+    // Also make this comment message reply-linkable
+    if (result && result.ok && result.result) {
+      await registerTelegramLink(ticket._id, recipient.telegramChatId, result.result.message_id);
+    }
   }
 }
 
 // Handle a plain-text message that is a reply to a ticket notification message.
-// Resolves the linked ticket via telegramNotification and stores the text as a comment.
+// Resolves the linked ticket via telegramNotifications and stores the text as a comment.
 export async function processIncomingMessage(message) {
   if (!message || !message.text || !message.reply_to_message) return;
 
@@ -114,8 +125,8 @@ export async function processIncomingMessage(message) {
   if (chatId == null || replyMessageId == null) return;
 
   const ticket = await Ticket.findOne({
-    'telegramNotification.chatId': String(chatId),
-    'telegramNotification.messageId': Number(replyMessageId)
+    'telegramNotifications.chatId': String(chatId),
+    'telegramNotifications.messageId': Number(replyMessageId)
   });
   if (!ticket) return; // not a reply to a ticket notification
 
