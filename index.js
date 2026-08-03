@@ -82,7 +82,8 @@ const authMiddleware = async (req, res, next) => {
 };
 
 const roleMiddleware = (roles) => (req, res, next) => {
-  if (!roles.includes(req.user.role)) {
+  // superadmin is a superset of admin — it passes any role gate
+  if (req.user.role !== "superadmin" && !roles.includes(req.user.role)) {
     return sendError(res, "Access denied", 403);
   }
   next();
@@ -2730,7 +2731,7 @@ app.get("/api/tickets", authMiddleware, roleMiddleware(["admin", "staff"]), asyn
       ];
     }
     if (status) query.status = status;
-    if (req.user.role !== "admin") {
+    if (req.user.role !== "superadmin") {
       query.$or = [
         ...(query.$or || []),
         { created_by: req.user._id },
@@ -2789,7 +2790,7 @@ app.get("/api/tickets/:id", authMiddleware, roleMiddleware(["admin", "staff"]), 
   try {
     const ticket = await Ticket.findById(req.params.id);
     if (!ticket) return sendError(res, "Ticket not found", 404);
-    if (req.user.role !== "admin" &&
+    if (req.user.role !== "superadmin" &&
         ticket.created_by.toString() !== req.user._id.toString() &&
         (!ticket.assigned_to || ticket.assigned_to.toString() !== req.user._id.toString())) {
       return sendError(res, "Access denied", 403);
@@ -2831,7 +2832,7 @@ app.put("/api/tickets/:id/status", authMiddleware, roleMiddleware(["admin", "sta
     }
     const ticket = await Ticket.findById(req.params.id);
     if (!ticket) return sendError(res, "Ticket not found", 404);
-    if (req.user.role !== "admin" &&
+    if (req.user.role !== "superadmin" &&
         ticket.created_by.toString() !== req.user._id.toString() &&
         (!ticket.assigned_to || ticket.assigned_to.toString() !== req.user._id.toString())) {
       return sendError(res, "Access denied", 403);
@@ -2872,7 +2873,9 @@ app.delete("/api/tickets/:id", authMiddleware, roleMiddleware(["admin", "staff"]
   try {
     const ticket = await Ticket.findById(req.params.id);
     if (!ticket) return sendError(res, "Ticket not found", 404);
-    if (req.user.role !== "admin" && ticket.created_by.toString() !== req.user._id.toString()) {
+    if (req.user.role !== "superadmin" &&
+        ticket.created_by.toString() !== req.user._id.toString() &&
+        (!ticket.assigned_to || ticket.assigned_to.toString() !== req.user._id.toString())) {
       return sendError(res, "Access denied", 403);
     }
     await Ticket.deleteOne({ _id: ticket._id });
@@ -2885,7 +2888,7 @@ app.delete("/api/tickets/:id", authMiddleware, roleMiddleware(["admin", "staff"]
 });
 
 // --- Team / Users Routes (admin) ---
-app.get("/api/users", authMiddleware, roleMiddleware(["admin"]), async (req, res) => {
+app.get("/api/users", authMiddleware, roleMiddleware(["superadmin"]), async (req, res) => {
   try {
     const users = await User.find({}).select("_id username role telegramChatId isActive");
     sendSuccess(res, users, "Users fetched");
@@ -2895,7 +2898,7 @@ app.get("/api/users", authMiddleware, roleMiddleware(["admin"]), async (req, res
 });
 
 // Create user (admin only)
-app.post("/api/users", authMiddleware, roleMiddleware(["admin"]), async (req, res) => {
+app.post("/api/users", authMiddleware, roleMiddleware(["superadmin"]), async (req, res) => {
   try {
     const { username, password, role } = req.body;
     if (!username || !password) return sendError(res, "Username and password are required", 400);
@@ -2910,7 +2913,7 @@ app.post("/api/users", authMiddleware, roleMiddleware(["admin"]), async (req, re
 });
 
 // Update user (role / isActive / telegramChatId) — admin only
-app.put("/api/users/:id", authMiddleware, roleMiddleware(["admin"]), async (req, res) => {
+app.put("/api/users/:id", authMiddleware, roleMiddleware(["superadmin"]), async (req, res) => {
   try {
     const { role, isActive, telegramChatId } = req.body;
     const user = await User.findById(req.params.id);
@@ -2934,7 +2937,7 @@ app.put("/api/users/:id", authMiddleware, roleMiddleware(["admin"]), async (req,
 });
 
 // Reset password (admin only)
-app.put("/api/users/:id/password", authMiddleware, roleMiddleware(["admin"]), async (req, res) => {
+app.put("/api/users/:id/password", authMiddleware, roleMiddleware(["superadmin"]), async (req, res) => {
   try {
     const { newPassword } = req.body;
     if (!newPassword || newPassword.length < 4) return sendError(res, "Password must be at least 4 characters", 400);
