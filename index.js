@@ -59,6 +59,7 @@ const authMiddleware = async (req, res, next) => {
     // Try User first
     const user = await User.findById(decoded.id);
     if (user) {
+      if (!user.isActive) return sendError(res, "Account is disabled", 401);
       req.user = user;
       return next();
     }
@@ -135,20 +136,6 @@ const sendError = (res, message, statusCode = 400) => {
 };
 
 // --- Auth Routes ---
-app.post("/api/auth/register", async (req, res) => {
-  try {
-    const { username, password, role } = req.body;
-    const existingUser = await User.findOne({ username });
-    if (existingUser) return sendError(res, "User already exists", 400);
-
-    const user = new User({ username, password, role });
-    await user.save();
-    sendSuccess(res, null, "User created", 201);
-  } catch (err) {
-    sendError(res, err.message, 400);
-  }
-});
-
 app.post("/api/auth/login", async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -156,6 +143,7 @@ app.post("/api/auth/login", async (req, res) => {
     if (!user || !(await user.comparePassword(password))) {
       return sendError(res, "Invalid credentials", 401);
     }
+    if (!user.isActive) return sendError(res, "Account is disabled", 403);
 
     const token = jwt.sign(
       { id: user._id, role: user.role },
@@ -2898,24 +2886,64 @@ app.delete("/api/tickets/:id", authMiddleware, roleMiddleware(["admin", "staff"]
 // --- Team / Users Routes (admin) ---
 app.get("/api/users", authMiddleware, roleMiddleware(["admin"]), async (req, res) => {
   try {
-    const users = await User.find({}).select("_id username role telegramChatId");
+    const users = await User.find({}).select("_id username role telegramChatId isActive");
     sendSuccess(res, users, "Users fetched");
   } catch (error) {
     sendError(res, error.message, 500);
   }
 });
 
+// Create user (admin only)
+app.post("/api/users", authMiddleware, roleMiddleware(["admin"]), async (req, res) => {
+  try {
+    const { username, password, role } = req.body;
+    if (!username || !password) return sendError(res, "Username and password are required", 400);
+    const existing = await User.findOne({ username });
+    if (existing) return sendError(res, "User already exists", 400);
+    const user = new User({ username, password, role: role || "staff" });
+    await user.save(); // pre-save hook hashes the password
+    sendSuccess(res, { id: user._id, username: user.username, role: user.role }, "User created", 201);
+  } catch (error) {
+    sendError(res, error.message, 400);
+  }
+});
+
+// Update user (role / isActive / telegramChatId) — admin only
 app.put("/api/users/:id", authMiddleware, roleMiddleware(["admin"]), async (req, res) => {
   try {
-    const { telegramChatId } = req.body;
+    const { role, isActive, telegramChatId } = req.body;
     const user = await User.findById(req.params.id);
     if (!user) return sendError(res, "User not found", 404);
-    user.telegramChatId = telegramChatId || undefined;
+
+    // Prevent admin from disabling their own account (self-lockout)
+    if (isActive === false && req.user._id.toString() === user._id.toString()) {
+      return sendError(res, "Cannot disable your own account", 400);
+    }
+
+    if (role !== undefined) user.role = role;
+    if (isActive !== undefined) user.isActive = isActive;
+    if (telegramChatId !== undefined) user.telegramChatId = telegramChatId || undefined;
     await user.save();
-    sendSuccess(res, user, "User updated");
+
+    sendSuccess(res, { id: user._id, username: user.username, role: user.role, isActive: user.isActive, telegramChatId: user.telegramChatId }, "User updated");
   } catch (error) {
     // duplicate telegramChatId -> duplicate key error
     sendError(res, error.code === 11000 ? "Telegram Chat ID already in use" : error.message, 400);
+  }
+});
+
+// Reset password (admin only)
+app.put("/api/users/:id/password", authMiddleware, roleMiddleware(["admin"]), async (req, res) => {
+  try {
+    const { newPassword } = req.body;
+    if (!newPassword || newPassword.length < 4) return sendError(res, "Password must be at least 4 characters", 400);
+    const user = await User.findById(req.params.id);
+    if (!user) return sendError(res, "User not found", 404);
+    user.password = newPassword; // pre-save hook hashes it
+    await user.save();
+    sendSuccess(res, null, "Password reset");
+  } catch (error) {
+    sendError(res, error.message, 400);
   }
 });
 
