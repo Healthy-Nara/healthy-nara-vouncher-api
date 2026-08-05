@@ -29,6 +29,7 @@ import { Lead } from "./models/Lead.js";
 import { Booking } from "./models/Booking.js";
 import { DailyReport } from "./models/DailyReport.js";
 import { DutyLog } from "./models/DutyLog.js";
+import { Expense } from "./models/Expense.js";
 import { Ticket } from "./models/Ticket.js";
 import { TicketComment } from "./models/TicketComment.js";
 import { TicketHistory } from "./models/TicketHistory.js";
@@ -1983,6 +1984,103 @@ app.delete(
   },
 );
 
+// 8.5 Expenses - ONLY admin
+app.get(
+  "/api/expenses",
+  authMiddleware,
+  roleMiddleware(["admin"]),
+  async (req, res) => {
+    try {
+      const { startDate, endDate, category } = req.query;
+      const query = {};
+      if (startDate || endDate) {
+        query.dateTime = {};
+        if (startDate) query.dateTime.$gte = new Date(startDate);
+        if (endDate) {
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
+          query.dateTime.$lte = end;
+        }
+      }
+      if (category) query.category = category;
+
+      const expenses = await Expense.find(query).sort({ dateTime: -1 });
+      sendSuccess(res, expenses, "Expenses fetched");
+    } catch (error) {
+      sendError(res, error.message, 500);
+    }
+  },
+);
+
+app.post(
+  "/api/expenses",
+  authMiddleware,
+  roleMiddleware(["admin"]),
+  async (req, res) => {
+    try {
+      const { category, amount, paymentChannel, description, dateTime, note } =
+        req.body;
+      if (!category || !amount)
+        return sendError(res, "Category and amount are required", 400);
+
+      const expense = await Expense.create({
+        category,
+        amount: Number(amount),
+        paymentChannel: paymentChannel || "Cash",
+        description,
+        dateTime: dateTime || new Date(),
+        note,
+      });
+      sendSuccess(res, expense, "Expense created", 201);
+    } catch (error) {
+      sendError(res, error.message, 500);
+    }
+  },
+);
+
+app.put(
+  "/api/expenses/:id",
+  authMiddleware,
+  roleMiddleware(["admin"]),
+  async (req, res) => {
+    try {
+      const { category, amount, paymentChannel, description, dateTime, note } =
+        req.body;
+      const expense = await Expense.findByIdAndUpdate(
+        req.params.id,
+        {
+          category,
+          amount: amount !== undefined ? Number(amount) : undefined,
+          paymentChannel,
+          description,
+          dateTime,
+          note,
+        },
+        { new: true, runValidators: true },
+      );
+      if (!expense) return sendError(res, "Expense not found", 404);
+      sendSuccess(res, expense, "Expense updated");
+    } catch (error) {
+      sendError(res, error.message, 500);
+    }
+  },
+);
+
+app.delete(
+  "/api/expenses/:id",
+  authMiddleware,
+  roleMiddleware(["admin"]),
+  async (req, res) => {
+    try {
+      const expense = await Expense.findByIdAndDelete(req.params.id);
+      if (!expense) return sendError(res, "Expense not found", 404);
+      sendSuccess(res, expense, "Expense deleted");
+    } catch (error) {
+      sendError(res, error.message, 500);
+    }
+  },
+);
+
 // 9. Dashboard Stats - ONLY admin
 app.get(
   "/api/stats",
@@ -1993,6 +2091,7 @@ app.get(
       const invoices = await Invoice.find();
       const leads = await Lead.find();
       const bookings = await Booking.find();
+      const expenses = await Expense.find();
 
       const stats = {
         totalInvoices: invoices.length,
@@ -2001,10 +2100,13 @@ app.get(
           0,
         ),
         totalPayouts: invoices.reduce((sum, inv) => sum + inv.amount, 0),
-        totalProfit: invoices.reduce(
-          (sum, inv) => sum + (inv.platformFee || 0),
-          0,
-        ),
+        totalExpenses: expenses.reduce((sum, e) => sum + (e.amount || 0), 0),
+        totalProfit:
+          invoices.reduce(
+            (sum, inv) => sum + (inv.platformFee || 0),
+            0,
+          ) -
+          expenses.reduce((sum, e) => sum + (e.amount || 0), 0),
         pendingPayments: invoices
           .filter((i) => i.customerPaymentStatus === "Pending")
           .reduce((sum, inv) => sum + inv.amount + (inv.platformFee || 0), 0),
@@ -2087,6 +2189,22 @@ app.get(
       });
       const invoices = await Invoice.find(dateQuery).sort({ createdAt: -1 });
 
+      // Expenses are dated by their own dateTime (not createdAt), so build a
+      // separate range query against that field.
+      const expenseDateQuery = {};
+      if (startDate || endDate) {
+        expenseDateQuery.dateTime = {};
+        if (startDate) expenseDateQuery.dateTime.$gte = new Date(startDate);
+        if (endDate) {
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
+          expenseDateQuery.dateTime.$lte = end;
+        }
+      }
+      const expenses = await Expense.find(expenseDateQuery).sort({
+        dateTime: -1,
+      });
+
       const channelBreakdown = {};
       const channels = ["KBZPay (Kpay)", "AYAPay", "WavePay"];
 
@@ -2097,6 +2215,7 @@ app.get(
       let totalIncome = 0;
       let totalPayouts = 0;
       let totalFees = 0;
+      let totalExpenses = 0;
 
       payments.forEach((p) => {
         const ch = p.paymentChannel || "KBZPay (Kpay)";
@@ -2119,6 +2238,10 @@ app.get(
         totalFees += inv.platformFee || 0;
       });
 
+      expenses.forEach((e) => {
+        totalExpenses += e.amount || 0;
+      });
+
       const dailyData = {};
       payments.forEach((p) => {
         const day = new Date(p.createdAt).toISOString().split("T")[0];
@@ -2138,6 +2261,12 @@ app.get(
           dailyData[day] = { income: 0, payouts: 0, fees: 0 };
         dailyData[day].fees += inv.platformFee || 0;
       });
+      expenses.forEach((e) => {
+        const day = new Date(e.dateTime).toISOString().split("T")[0];
+        if (!dailyData[day])
+          dailyData[day] = { income: 0, payouts: 0, fees: 0, expense: 0 };
+        dailyData[day].expense = (dailyData[day].expense || 0) + (e.amount || 0);
+      });
 
       sendSuccess(
         res,
@@ -2145,11 +2274,13 @@ app.get(
           totalIncome,
           totalPayouts,
           totalFees,
-          netProfit: totalIncome - totalPayouts,
+          totalExpenses,
+          netProfit: totalIncome - totalPayouts - totalExpenses,
           channelBreakdown,
           dailyData,
           paymentCount: payments.length,
           payoutCount: payouts.length,
+          expenseCount: expenses.length,
         },
         "Financial report fetched",
       );
