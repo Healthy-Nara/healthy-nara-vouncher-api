@@ -206,20 +206,32 @@ mongoose
 const generateInvoiceNumber = async () => {
   const date = new Date();
   const dateStr = date.toISOString().slice(0, 10).replace(/-/g, ""); // YYYYMMDD
-  const count = await Invoice.countDocuments({
+  const lastInvoice = await Invoice.findOne({
     invoiceNumber: { $regex: new RegExp(`^INV-${dateStr}`) },
-  });
-  const sequence = (count + 1).toString().padStart(4, "0");
+  }).sort({ invoiceNumber: -1 });
+
+  let nextSeq = 1;
+  if (lastInvoice) {
+    const lastSeqStr = lastInvoice.invoiceNumber.split("-")[2];
+    nextSeq = parseInt(lastSeqStr, 10) + 1;
+  }
+  const sequence = nextSeq.toString().padStart(4, "0");
   return `INV-${dateStr}-${sequence}`;
 };
 
 const generateBookingNumber = async () => {
   const date = new Date();
   const dateStr = date.toISOString().slice(0, 10).replace(/-/g, "");
-  const count = await Booking.countDocuments({
+  const lastBooking = await Booking.findOne({
     bookingNumber: { $regex: new RegExp(`^BK-${dateStr}`) },
-  });
-  const sequence = (count + 1).toString().padStart(4, "0");
+  }).sort({ bookingNumber: -1 });
+
+  let nextSeq = 1;
+  if (lastBooking) {
+    const lastSeqStr = lastBooking.bookingNumber.split("-")[2];
+    nextSeq = parseInt(lastSeqStr, 10) + 1;
+  }
+  const sequence = nextSeq.toString().padStart(4, "0");
   return `BK-${dateStr}-${sequence}`;
 };
 
