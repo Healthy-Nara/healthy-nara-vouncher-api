@@ -640,6 +640,136 @@ app.post(
   },
 );
 
+app.post(
+  "/api/bookings/import",
+  authMiddleware,
+  roleMiddleware(["admin", "staff"]),
+  async (req, res) => {
+    try {
+      const { bookings } = req.body;
+      if (!bookings || !Array.isArray(bookings)) {
+        return sendError(res, "Invalid bookings list format", 400);
+      }
+
+      const imported = [];
+      const errors = [];
+
+      for (let i = 0; i < bookings.length; i++) {
+        const item = bookings[i];
+
+        try {
+          // If booking ID or Booking Number is provided, try updating first
+          let existingBooking = null;
+          if (item.bookingId) {
+            // check if valid ObjectId
+            if (mongoose.Types.ObjectId.isValid(item.bookingId)) {
+              existingBooking = await Booking.findById(item.bookingId);
+            }
+            if (!existingBooking) {
+              existingBooking = await Booking.findOne({ bookingNumber: item.bookingId });
+            }
+          }
+
+          if (existingBooking) {
+            existingBooking.status = item.status || existingBooking.status;
+            existingBooking.dutyDuration = item.dutyDuration || existingBooking.dutyDuration;
+            existingBooking.dutyShift = item.dutyShift || existingBooking.dutyShift;
+            if (item.dutyStartDate) {
+              existingBooking.requestedDates = [new Date(item.dutyStartDate)];
+            }
+            existingBooking.additionalNotes = item.additionalNotes || existingBooking.additionalNotes;
+            await existingBooking.save();
+
+            await createLog(
+              req,
+              "Update Booking Import",
+              "Booking",
+              existingBooking.bookingNumber,
+              `Booking ${existingBooking.bookingNumber} status updated to ${existingBooking.status} via Excel`,
+            );
+
+            imported.push(existingBooking);
+            continue;
+          }
+
+          // Fallback to Create if booking does not exist
+          if (!item.parentName || !item.parentPhone) {
+            errors.push({ index: i, error: "Parent Name and Parent Phone are required for new bookings" });
+            continue;
+          }
+
+          // Find or create Parent
+          let parent = await Parent.findOne({
+            parentName: item.parentName,
+            contactNumber: item.parentPhone,
+          });
+
+          if (!parent) {
+            parent = new Parent({
+              parentName: item.parentName,
+              contactNumber: item.parentPhone,
+              township: item.parentTownship || "",
+              address: item.parentAddress || "",
+              religion: "Buddhist",
+              children: [],
+            });
+          }
+
+          // Check if child needs to be added
+          if (item.childName) {
+            const hasChild = parent.children.some(
+              (c) => c.childName.toLowerCase() === item.childName.toLowerCase()
+            );
+            if (!hasChild) {
+              parent.children.push({
+                childName: item.childName,
+                birthDate: item.childBirthDate ? new Date(item.childBirthDate) : undefined,
+                gender: "Male",
+                hasInfectiousDisease: false,
+              });
+            }
+          }
+
+          await parent.save();
+
+          // Create Booking
+          const bookingNumber = await generateBookingNumber();
+          const booking = new Booking({
+            bookingNumber,
+            customerName: parent.parentName,
+            phoneNumber: parent.contactNumber,
+            parent: parent._id,
+            status: item.status || "Pending NA Selection",
+            dutyDuration: item.dutyDuration || "daily",
+            dutyShift: item.dutyShift || "day",
+            requestedDates: item.dutyStartDate ? [new Date(item.dutyStartDate)] : [],
+            additionalNotes: item.additionalNotes || "",
+            bookingToken: generateBookingToken(),
+          });
+
+          await booking.save();
+
+          await createLog(
+            req,
+            "Import Booking",
+            "Booking",
+            booking.bookingNumber,
+            `Booking ${bookingNumber} imported via Excel`,
+          );
+
+          imported.push(booking);
+        } catch (err) {
+          errors.push({ index: i, error: err.message });
+        }
+      }
+
+      sendSuccess(res, { importedCount: imported.length, errors }, `Imported ${imported.length} bookings with ${errors.length} errors.`);
+    } catch (error) {
+      sendError(res, error.message, 500);
+    }
+  },
+);
+
 app.get(
   "/api/bookings",
   authMiddleware,
@@ -964,6 +1094,92 @@ app.post(
     }
   },
 );
+
+// Public new booking creation (no auth)
+app.post("/api/bookings/public/new-booking", async (req, res) => {
+  try {
+    const {
+      parentName,
+      contactNumber,
+      township,
+      address,
+      servicePackage,
+      dutyDuration,
+      dutyShift,
+      requestedDates,
+      additionalNotes,
+      children = []
+    } = req.body;
+
+    if (!parentName || !contactNumber) {
+      return sendError(res, "Parent Name and Contact Number are required", 400);
+    }
+
+    // Find or create Parent
+    let parent = await Parent.findOne({ parentName, contactNumber });
+    if (!parent) {
+      parent = new Parent({
+        parentName,
+        contactNumber,
+        township: township || "",
+        address: address || "",
+        religion: "Buddhist",
+        children: []
+      });
+    }
+
+    // Add children dynamically if not already added
+    if (children && Array.isArray(children)) {
+      children.forEach(c => {
+        if (c.childName) {
+          const hasChild = parent.children.some(
+            existingChild => existingChild.childName.toLowerCase() === c.childName.toLowerCase()
+          );
+          if (!hasChild) {
+            parent.children.push({
+              childName: c.childName,
+              birthDate: c.birthDate ? new Date(c.birthDate) : undefined,
+              gender: c.gender || "Male",
+              hasInfectiousDisease: !!c.hasInfectiousDisease
+            });
+          }
+        }
+      });
+    }
+
+    await parent.save();
+
+    // Create Booking
+    const bookingNumber = await generateBookingNumber();
+    const booking = new Booking({
+      bookingNumber,
+      customerName: parent.parentName,
+      phoneNumber: parent.contactNumber,
+      parent: parent._id,
+      status: "Pending NA Selection",
+      servicePackage: servicePackage || "N/A",
+      dutyDuration: dutyDuration || "daily",
+      dutyShift: dutyShift || "day",
+      requestedDates: requestedDates ? requestedDates.map((d) => new Date(d)) : [],
+      additionalNotes: additionalNotes || "",
+      bookingToken: generateBookingToken()
+    });
+
+    await booking.save();
+
+    await createLog(
+      { user: { role: "client", username: "Public Client" } },
+      "Public Create Booking",
+      "Booking",
+      booking.bookingNumber,
+      `Booking ${bookingNumber} created from general public link`,
+    );
+
+    sendSuccess(res, booking, "Booking submitted successfully", 201);
+  } catch (error) {
+    sendError(res, error.message, 500);
+  }
+});
 
 // Public booking form (no auth)
 app.get("/api/bookings/public/:token", async (req, res) => {
@@ -1389,6 +1605,78 @@ app.post(
       sendSuccess(res, parent, "Parent created", 201);
     } catch (error) {
       sendError(res, error.message, 400);
+    }
+  },
+);
+
+app.post(
+  "/api/parents/import",
+  authMiddleware,
+  roleMiddleware(["admin", "staff"]),
+  async (req, res) => {
+    try {
+      const { parents } = req.body;
+      if (!parents || !Array.isArray(parents)) {
+        return sendError(res, "Invalid parents list data format", 400);
+      }
+
+      const imported = [];
+      const errors = [];
+
+      for (let i = 0; i < parents.length; i++) {
+        const item = parents[i];
+        if (!item.parentName) {
+          errors.push({ index: i, error: "Parent Name is required" });
+          continue;
+        }
+
+        try {
+          // Check for duplicate parent
+          let existing = null;
+          if (item.contactNumber) {
+            existing = await Parent.findOne({
+              parentName: item.parentName,
+              contactNumber: item.contactNumber,
+            });
+          }
+
+          if (existing) {
+            errors.push({ index: i, error: `Parent "${item.parentName}" with this contact number already exists` });
+            continue;
+          }
+
+          const newParent = new Parent({
+            parentName: item.parentName,
+            contactNumber: item.contactNumber || "",
+            township: item.township || "",
+            address: item.address || "",
+            religion: item.religion || "Buddhist",
+            nearestBusStop: item.nearestBusStop || "",
+            durationOfBusStopToHome: item.durationOfBusStopToHome || "",
+            status: item.status || "Inactive",
+            profession: item.profession || "",
+            children: item.children || [],
+          });
+
+          await newParent.save();
+
+          await createLog(
+            req,
+            "Import Parent",
+            "Parent",
+            newParent._id.toString(),
+            `Parent ${newParent.parentName} imported via Excel`,
+          );
+
+          imported.push(newParent);
+        } catch (err) {
+          errors.push({ index: i, error: err.message });
+        }
+      }
+
+      sendSuccess(res, { importedCount: imported.length, errors }, `Imported ${imported.length} parents with ${errors.length} errors.`);
+    } catch (error) {
+      sendError(res, error.message, 500);
     }
   },
 );

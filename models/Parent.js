@@ -16,6 +16,8 @@ const parentSchema = new mongoose.Schema({
   religion:                { type: String, enum: ['Buddhist', 'Christian', 'Muslim', 'Hindu', 'Other'] },
   nearestBusStop:          { type: String },
   durationOfBusStopToHome: { type: String },
+  status:                  { type: String, enum: ['Daily', 'Weekly', 'Monthly', 'Custom', 'Inactive'], default: 'Inactive' },
+  profession:              { type: String },
   children:                [childSchema]
 }, { timestamps: true });
 
