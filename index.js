@@ -2388,10 +2388,32 @@ app.get(
   roleMiddleware(["admin"]),
   async (req, res) => {
     try {
-      const invoices = await Invoice.find();
-      const leads = await Lead.find();
-      const bookings = await Booking.find();
-      const expenses = await Expense.find();
+      const { startDate, endDate } = req.query;
+      
+      const invoiceFilter = {};
+      const leadFilter = {};
+      const bookingFilter = {};
+      const expenseFilter = {};
+
+      if (startDate || endDate) {
+        const dateQuery = {};
+        if (startDate) dateQuery.$gte = new Date(startDate);
+        if (endDate) {
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
+          dateQuery.$lte = end;
+        }
+        
+        invoiceFilter.date = dateQuery;
+        leadFilter.createdAt = dateQuery;
+        bookingFilter.createdAt = dateQuery;
+        expenseFilter.dateTime = dateQuery;
+      }
+
+      const invoices = await Invoice.find(invoiceFilter);
+      const leads = await Lead.find(leadFilter);
+      const bookings = await Booking.find(bookingFilter);
+      const expenses = await Expense.find(expenseFilter);
 
       const stats = {
         totalInvoices: invoices.length,
@@ -2400,6 +2422,10 @@ app.get(
           0,
         ),
         totalPayouts: invoices.reduce((sum, inv) => sum + inv.amount, 0),
+        totalPlatformFee: invoices.reduce(
+          (sum, inv) => sum + (inv.platformFee || 0),
+          0,
+        ),
         totalExpenses: expenses.reduce((sum, e) => sum + (e.amount || 0), 0),
         totalProfit:
           invoices.reduce(
