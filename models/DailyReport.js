@@ -1,46 +1,19 @@
 import mongoose from 'mongoose';
 
-const feedingRecordSchema = new mongoose.Schema({
-  type: { 
+const dailyRecordItemSchema = new mongoose.Schema({
+  category: { 
     type: String, 
-    enum: ['breast_milk', 'formula'], 
+    enum: [
+      'Nutrition and Feeding', 
+      'Sleeping', 
+      'Activity and exercise', 
+      'Analysis and Unusual Findings',
+      'Personal Hygiene'
+    ], 
     required: true 
   },
-  time: { type: Date, required: true },
-  amount: { type: String, required: true },
-  burpingDone: { type: Boolean, default: false },
-  airReleased: { type: Boolean, default: false },
-  spitUp: { type: Boolean, default: false }
-}, { _id: false });
-
-const sleepRecordSchema = new mongoose.Schema({
-  type: { 
-    type: String, 
-    enum: ['day', 'night'], 
-    required: true 
-  },
-  startTime: { type: Date, required: true },
-  endTime: { type: Date },
-  onSchedule: { type: Boolean, default: true }
-}, { _id: false });
-
-const activitySchema = new mongoose.Schema({
-  type: { 
-    type: String, 
-    enum: ['exercise', 'flash_cards', 'story_reading'], 
-    required: true 
-  },
-  time: { type: Date, required: true }
-}, { _id: false });
-
-const hygieneSchema = new mongoose.Schema({
-  bathTime: { type: Date },
-  bathType: { 
-    type: String, 
-    enum: ['bath', 'sponge_bath'] 
-  },
-  diaperChanges: { type: Number, default: 0 },
-  rashCheck: { type: Boolean, default: false }
+  time: { type: String, required: true },
+  desc: { type: String, required: true }
 }, { _id: false });
 
 const dailyReportSchema = new mongoose.Schema({
@@ -62,21 +35,8 @@ const dailyReportSchema = new mongoose.Schema({
   },
   date: { type: Date, required: true },
   
-  // Nutrition & Feeding
-  feedingRecords: [feedingRecordSchema],
-  supplementaryFood: { type: String },
-  
-  // Personal Hygiene
-  hygiene: hygieneSchema,
-  
-  // Sleeping
-  sleepRecords: [sleepRecordSchema],
-  
-  // Activity & Exercise
-  activities: [activitySchema],
-  
-  // Analysis & Unusual Findings
-  abnormalities: { type: String },
+  // Dynamic records list
+  records: [dailyRecordItemSchema],
   
   // Status
   status: { 

@@ -783,6 +783,13 @@ app.get(
       if (excludeStatuses) {
         query.status = { $nin: excludeStatuses.split(",") };
       }
+
+      // Filter by selectedCaregiver if the user is a Caregiver
+      const isCaregiver = await Caregiver.exists({ _id: req.user._id });
+      if (isCaregiver) {
+        query.selectedCaregiver = req.user._id;
+      }
+
       const bookings = await Booking.find(query)
         .populate("lead", "customerName phoneNumber channel")
         .populate("selectedCaregiver", "caregiverName contactNumber")
@@ -1020,6 +1027,19 @@ app.patch(
         booking.bookingNumber,
         `Booking ${booking.bookingNumber} ${label}`,
       );
+
+      if (status === "Completed") {
+        await DailyReport.updateMany(
+          {
+            booking: booking._id,
+            status: "draft",
+          },
+          {
+            status: "submitted",
+            submittedAt: new Date(),
+          }
+        );
+      }
 
       sendSuccess(res, booking, `Booking ${label}`);
     } catch (error) {
@@ -2797,6 +2817,11 @@ app.post("/api/na/duty/start", naAuthMiddleware, async (req, res) => {
       return sendError(res, "Booking not found");
     }
 
+    // Verify that this booking is indeed assigned to this caregiver
+    if (!booking.selectedCaregiver || booking.selectedCaregiver.toString() !== caregiver._id.toString()) {
+      return sendError(res, "This booking is not assigned to you");
+    }
+
     const dutyLog = new DutyLog({
       caregiver: caregiver._id,
       caregiverName: caregiver.caregiverName,
@@ -2833,6 +2858,71 @@ app.post("/api/na/duty/finish", naAuthMiddleware, async (req, res) => {
     dutyLog.status = "completed";
     await dutyLog.save();
 
+    // Update Booking status to Completed
+    // Weekly/Monthly fix — multi-date (သို့) dutyDuration=weekly/monthly booking ဆိုရင်
+    // နောက်ဆုံး service ရက်မှာပဲ Complete လုပ်တယ်၊ မဟုတ်ရင် Assigned အဖြစ် ဆက်ထားတယ်
+    const booking = await Booking.findById(dutyLog.booking);
+    if (booking && booking.status !== "Completed") {
+      const serviceDates = (booking.requestedDates || [])
+        .filter(Boolean)
+        .map((d) => {
+          const dt = new Date(d);
+          dt.setHours(23, 59, 59, 999);
+          return dt.getTime();
+        });
+      const todayEnd = new Date();
+      todayEnd.setHours(23, 59, 59, 999);
+
+      const durationStr = (booking.dutyDuration || "").toLowerCase();
+      const isOngoingPackage =
+        serviceDates.length <= 1 &&
+        (durationStr.includes("week") || durationStr.includes("month"));
+
+      const hasUpcomingService =
+        serviceDates.some((ts) => ts > todayEnd.getTime()) || isOngoingPackage;
+
+      if (!hasUpcomingService) {
+        booking.status = "Completed";
+        await booking.save();
+
+        // Free caregiver availability slots
+        if (booking.selectedCaregiver) {
+          const cg = await Caregiver.findById(booking.selectedCaregiver);
+          if (cg && cg.availability) {
+            for (const date of booking.requestedDates) {
+              const slot = cg.availability.find(
+                (a) =>
+                  new Date(a.date).toDateString() ===
+                    new Date(date).toDateString() &&
+                  a.bookingId?.toString() === booking._id.toString()
+              );
+              if (slot) {
+                slot.isBooked = false;
+                slot.bookingId = undefined;
+              }
+            }
+            await cg.save();
+          }
+        }
+      }
+    }
+
+    // Also auto-submit draft DailyReports for this caregiver and booking
+    // Weekly fix — date <= now ပဲ submit လုပ်တယ် (နောက်ရက်တွေရဲ့ ကြိုဆောက်ထားတဲ့
+    // draft form တွေ submitted မဖြစ်စေဖို့၊ ဆက်ရေးနိုင်ရန်)
+    await DailyReport.updateMany(
+      {
+        caregiver: caregiver._id,
+        booking: dutyLog.booking,
+        status: "draft",
+        date: { $lte: new Date() },
+      },
+      {
+        status: "submitted",
+        submittedAt: new Date(),
+      }
+    );
+
     sendSuccess(res, dutyLog, "Duty finished");
   } catch (err) {
     sendError(res, err.message, 400);
@@ -2861,14 +2951,36 @@ app.post("/api/na/reports", naAuthMiddleware, async (req, res) => {
       bookingId,
       date,
       childName,
-      feedingRecords,
-      supplementaryFood,
-      hygiene,
-      sleepRecords,
-      activities,
-      abnormalities,
+      records,
       status,
     } = req.body;
+
+    // Night-duty fix — report date ကို active duty ရဲ့ dutyStart ရက်နဲ့ ချည်ထားတယ်
+    // (မနက်ဖြန် ၁၂ နာရီကျော်ပြီး record လုပ်လည်း တစည်းဘတ် report တည်းကို update ဖြစ်စေဖို့)
+    const activeDuty = await DutyLog.findOne({
+      caregiver: caregiver._id,
+      booking: bookingId,
+      status: "active",
+    });
+
+    let reportDate = null;
+    if (activeDuty?.dutyStart) {
+      // ၂၄ နာရီအောက် duty (night shift အပါအဝင်) → dutyStart ရက်ပဲ သုံး
+      // ၂၄ နာရီကျော်နေတဲ့ ဆက်တိုက် duty (weekly/live-in) → ဒီနေ့ရက်ကို ရွှေ့သုံး
+      const startedAt = new Date(activeDuty.dutyStart);
+      const hoursActive = (Date.now() - startedAt.getTime()) / 36e5;
+      reportDate = hoursActive >= 24 ? new Date() : new Date(startedAt);
+      reportDate.setUTCHours(0, 0, 0, 0);
+    } else if (date) {
+      reportDate = new Date(date);
+      if (!isNaN(reportDate.getTime())) {
+        reportDate.setUTCHours(0, 0, 0, 0);
+      }
+    }
+
+    if (!reportDate || isNaN(reportDate.getTime())) {
+      return sendError(res, "Valid date or active duty is required");
+    }
 
     // Auto-resolve childName from parent's children if not provided
     if (!childName) {
@@ -2885,19 +2997,14 @@ app.post("/api/na/reports", naAuthMiddleware, async (req, res) => {
     const existingReport = await DailyReport.findOne({
       caregiver: caregiver._id,
       booking: bookingId,
-      date: new Date(date),
+      date: reportDate,
       childName,
     });
 
     if (existingReport) {
       // Update existing report
       Object.assign(existingReport, {
-        feedingRecords,
-        supplementaryFood,
-        hygiene,
-        sleepRecords,
-        activities,
-        abnormalities,
+        records,
         status,
         submittedAt: status === "submitted" ? new Date() : undefined,
       });
@@ -2914,13 +3021,8 @@ app.post("/api/na/reports", naAuthMiddleware, async (req, res) => {
       parent: booking?.parent,
       childName,
       booking: bookingId,
-      date: new Date(date),
-      feedingRecords,
-      supplementaryFood,
-      hygiene,
-      sleepRecords,
-      activities,
-      abnormalities,
+      date: reportDate,
+      records,
       status: status || "draft",
       submittedAt: status === "submitted" ? new Date() : undefined,
     });
@@ -2935,7 +3037,7 @@ app.post("/api/na/reports", naAuthMiddleware, async (req, res) => {
 app.get("/api/na/reports", naAuthMiddleware, async (req, res) => {
   try {
     const caregiver = req.caregiver;
-    const { date } = req.query;
+    const { date, bookingId } = req.query;
 
     const filter = { caregiver: caregiver._id };
     if (date) {
@@ -2944,6 +3046,9 @@ app.get("/api/na/reports", naAuthMiddleware, async (req, res) => {
       const endOfDay = new Date(date);
       endOfDay.setHours(23, 59, 59, 999);
       filter.date = { $gte: startOfDay, $lte: endOfDay };
+    }
+    if (bookingId) {
+      filter.booking = bookingId;
     }
 
     const reports = await DailyReport.find(filter)
@@ -2987,22 +3092,12 @@ app.put("/api/na/reports/:id", naAuthMiddleware, async (req, res) => {
     }
 
     const {
-      feedingRecords,
-      supplementaryFood,
-      hygiene,
-      sleepRecords,
-      activities,
-      abnormalities,
+      records,
       status,
     } = req.body;
 
     Object.assign(report, {
-      feedingRecords,
-      supplementaryFood,
-      hygiene,
-      sleepRecords,
-      activities,
-      abnormalities,
+      records,
       status,
       submittedAt: status === "submitted" ? new Date() : report.submittedAt,
     });
