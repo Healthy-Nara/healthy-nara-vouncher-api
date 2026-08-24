@@ -1007,7 +1007,7 @@ app.patch(
             const slot = caregiver.availability.find(
               (a) =>
                 new Date(a.date).toDateString() ===
-                  new Date(date).toDateString() &&
+                new Date(date).toDateString() &&
                 a.bookingId?.toString() === booking._id.toString(),
             );
             if (slot) {
@@ -2409,7 +2409,7 @@ app.get(
   async (req, res) => {
     try {
       const { startDate, endDate } = req.query;
-      
+
       const invoiceFilter = {};
       const leadFilter = {};
       const bookingFilter = {};
@@ -2423,7 +2423,7 @@ app.get(
           end.setHours(23, 59, 59, 999);
           dateQuery.$lte = end;
         }
-        
+
         invoiceFilter.date = dateQuery;
         leadFilter.createdAt = dateQuery;
         bookingFilter.createdAt = dateQuery;
@@ -2893,7 +2893,7 @@ app.post("/api/na/duty/finish", naAuthMiddleware, async (req, res) => {
               const slot = cg.availability.find(
                 (a) =>
                   new Date(a.date).toDateString() ===
-                    new Date(date).toDateString() &&
+                  new Date(date).toDateString() &&
                   a.bookingId?.toString() === booking._id.toString()
               );
               if (slot) {
@@ -3319,7 +3319,7 @@ app.post("/api/tickets", authMiddleware, roleMiddleware(["admin", "staff"]), asy
     await addTicketHistory(ticket._id, req.user._id, req.user.username, "Created ticket");
     if (ticket.assigned_to) {
       await addTicketHistory(ticket._id, req.user._id, req.user.username, `Assigned to ${assignedName}`);
-      notifyTicketAssigned(ticket._id).catch(() => {});
+      notifyTicketAssigned(ticket._id).catch(() => { });
     }
     sendSuccess(res, ticket, "Ticket created", 201);
   } catch (error) {
@@ -3343,8 +3343,8 @@ app.get("/api/tickets/:id", authMiddleware, roleMiddleware(["admin", "staff"]), 
     const ticket = await Ticket.findById(req.params.id);
     if (!ticket) return sendError(res, "Ticket not found", 404);
     if (req.user.role !== "superadmin" &&
-        ticket.created_by.toString() !== req.user._id.toString() &&
-        (!ticket.assigned_to || ticket.assigned_to.toString() !== req.user._id.toString())) {
+      ticket.created_by.toString() !== req.user._id.toString() &&
+      (!ticket.assigned_to || ticket.assigned_to.toString() !== req.user._id.toString())) {
       return sendError(res, "Access denied", 403);
     }
     const comments = await TicketComment.find({ ticket_id: ticket._id }).sort({ createdAt: 1 });
@@ -3368,7 +3368,7 @@ app.put("/api/tickets/:id/assign", authMiddleware, roleMiddleware(["admin"]), as
     await ticket.save();
 
     await addTicketHistory(ticket._id, req.user._id, req.user.username, user ? `Assigned to ${user.username}` : "Unassigned");
-    if (user) notifyTicketAssigned(ticket._id).catch(() => {});
+    if (user) notifyTicketAssigned(ticket._id).catch(() => { });
     sendSuccess(res, ticket, "Ticket assigned");
   } catch (error) {
     sendError(res, error.message, 400);
@@ -3385,8 +3385,8 @@ app.put("/api/tickets/:id/status", authMiddleware, roleMiddleware(["admin", "sta
     const ticket = await Ticket.findById(req.params.id);
     if (!ticket) return sendError(res, "Ticket not found", 404);
     if (req.user.role !== "superadmin" &&
-        ticket.created_by.toString() !== req.user._id.toString() &&
-        (!ticket.assigned_to || ticket.assigned_to.toString() !== req.user._id.toString())) {
+      ticket.created_by.toString() !== req.user._id.toString() &&
+      (!ticket.assigned_to || ticket.assigned_to.toString() !== req.user._id.toString())) {
       return sendError(res, "Access denied", 403);
     }
     const oldStatus = ticket.status;
@@ -3413,7 +3413,7 @@ app.post("/api/tickets/:id/comments", authMiddleware, roleMiddleware(["admin", "
     });
     await comment.save();
     await addTicketHistory(ticket._id, req.user._id, req.user.username, "Added comment");
-    notifyTicketCommented(ticket._id, req.user.username, message).catch(() => {});
+    notifyTicketCommented(ticket._id, req.user.username, message).catch(() => { });
     sendSuccess(res, comment, "Comment added", 201);
   } catch (error) {
     sendError(res, error.message, 400);
@@ -3426,8 +3426,8 @@ app.delete("/api/tickets/:id", authMiddleware, roleMiddleware(["admin", "staff"]
     const ticket = await Ticket.findById(req.params.id);
     if (!ticket) return sendError(res, "Ticket not found", 404);
     if (req.user.role !== "superadmin" &&
-        ticket.created_by.toString() !== req.user._id.toString() &&
-        (!ticket.assigned_to || ticket.assigned_to.toString() !== req.user._id.toString())) {
+      ticket.created_by.toString() !== req.user._id.toString() &&
+      (!ticket.assigned_to || ticket.assigned_to.toString() !== req.user._id.toString())) {
       return sendError(res, "Access denied", 403);
     }
     await Ticket.deleteOne({ _id: ticket._id });
@@ -3534,7 +3534,7 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT} (0.0.0.0)`);
-  initTelegramWebhook().catch(() => {});
+  initTelegramWebhook().catch(() => { });
 });
 
 export default app;
