@@ -33,7 +33,7 @@ import { Expense } from "./models/Expense.js";
 import { Ticket } from "./models/Ticket.js";
 import { TicketComment } from "./models/TicketComment.js";
 import { TicketHistory } from "./models/TicketHistory.js";
-import { initTelegramWebhook, notifyTicketAssigned, notifyTicketCommented, processIncomingMessage, processTicketCallback } from "./telegramService.js";
+import { initTelegramService, initTelegramWebhook, notifyTicketAssigned, notifyTicketCommented, processIncomingMessage, processTicketCallback } from "./telegramService.js";
 
 const app = express();
 
@@ -3534,7 +3534,9 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT} (0.0.0.0)`);
-  initTelegramWebhook().catch(() => { });
+  initTelegramService().catch((err) => {
+    console.error(">>> [Telegram Init Error]:", err.message);
+  });
 });
 
 export default app;

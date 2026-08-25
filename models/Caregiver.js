@@ -17,6 +17,13 @@ const caregiverSchema = new mongoose.Schema({
   birthdate:      { type: Date },
   bankInfo:       { type: String },
   specialization: { type: String },
+  religion:       { type: String, default: 'Buddhist' },
+  weight:         { type: String },
+  height:         { type: String },
+  educationStatus:{ type: String },
+  trainingSchool: { type: String },
+  experienceYears:{ type: String },
+  experienceCases:{ type: String },
   note:           { type: String },
   availability:   [availabilitySchema],
   

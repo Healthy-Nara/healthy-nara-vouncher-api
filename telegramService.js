@@ -159,6 +159,7 @@ export async function processIncomingMessage(message) {
 
 export async function processTicketCallback(callbackQuery) {
   const data = callbackQuery.data || '';
+  console.log('>>> [Telegram Callback Query]:', data, 'from:', callbackQuery.from?.username || callbackQuery.from?.id);
   if (!data.startsWith('ticket:')) return;
 
   const rest = data.slice('ticket:'.length);
@@ -168,11 +169,26 @@ export async function processTicketCallback(callbackQuery) {
   const newStatus = rest.slice(colon + 1);
 
   const ticket = await Ticket.findById(ticketId).populate('created_by', 'telegramChatId username');
-  if (!ticket) return;
+  if (!ticket) {
+    console.log('>>> [Telegram Callback] Ticket not found:', ticketId);
+    return;
+  }
 
   if (['Open', 'In Progress', 'Pending', 'Resolved'].includes(newStatus) && newStatus !== ticket.status) {
+    const oldStatus = ticket.status;
     ticket.status = newStatus;
     await ticket.save();
+
+    console.log(`>>> [Telegram] Ticket "${ticket.title}" status updated: ${oldStatus} -> ${newStatus}`);
+
+    // Record ticket history
+    const user = await User.findOne({ telegramChatId: String(callbackQuery.from?.id) });
+    await TicketHistory.create({
+      ticket_id: ticket._id,
+      user_id: user ? user._id : (ticket.assigned_to || ticket.created_by),
+      userName: user ? user.username : (callbackQuery.from?.first_name || 'Telegram User'),
+      action_performed: `Changed status from ${oldStatus} to ${newStatus} (via Telegram)`
+    });
   }
 
   // Acknowledge the button press
@@ -208,5 +224,63 @@ export async function initTelegramWebhook() {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const url = process.env.TELEGRAM_WEBHOOK_URL;
   if (!token || !url) return;
-  await callTelegram('setWebhook', { url });
+  const res = await callTelegram('setWebhook', { url });
+  console.log('>>> [Telegram Webhook Setup Result]:', res);
+}
+
+let isPollingActive = false;
+
+export async function startTelegramPolling() {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || isPollingActive) return;
+  isPollingActive = true;
+
+  try {
+    // Delete existing webhook so getUpdates polling works locally
+    await callTelegram('deleteWebhook', { drop_pending_updates: false });
+    console.log('>>> [Telegram] Local Development Mode: Webhook deleted. Long-polling started.');
+
+    let offset = 0;
+
+    const poll = async () => {
+      while (isPollingActive) {
+        try {
+          const res = await fetch(`https://api.telegram.org/bot${token}/getUpdates?offset=${offset}&timeout=20`, {
+            method: 'GET'
+          });
+          const data = await res.json();
+          if (data && data.ok && Array.isArray(data.result)) {
+            for (const update of data.result) {
+              offset = update.update_id + 1;
+              if (update.callback_query) {
+                await processTicketCallback(update.callback_query);
+              }
+              if (update.message) {
+                await processIncomingMessage(update.message);
+              }
+            }
+          }
+        } catch (err) {
+          // Wait briefly before retrying if network error
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+        }
+      }
+    };
+
+    poll();
+  } catch (err) {
+    console.error('>>> [Telegram Polling Error]:', err.message);
+  }
+}
+
+export async function initTelegramService() {
+  const isPollingForced = process.env.TELEGRAM_USE_POLLING === 'true';
+  const hasWebhookUrl = process.env.TELEGRAM_WEBHOOK_URL && process.env.TELEGRAM_WEBHOOK_URL.startsWith('https://');
+  const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL;
+
+  if (!isPollingForced && isProduction && hasWebhookUrl) {
+    await initTelegramWebhook();
+  } else {
+    await startTelegramPolling();
+  }
 }
