@@ -44,7 +44,11 @@ const dailyReportSchema = new mongoose.Schema({
     enum: ['draft', 'submitted'], 
     default: 'draft' 
   },
-  submittedAt: { type: Date }
+  submittedAt: { type: Date },
+
+  // AI Generated Summary
+  aiSummary: { type: String },
+  aiSummaryGeneratedAt: { type: Date }
 }, { timestamps: true });
 
 // One report per caregiver per date per booking per child

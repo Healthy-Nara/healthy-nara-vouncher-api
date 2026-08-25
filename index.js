@@ -2943,6 +2943,29 @@ app.get("/api/na/duty/status", naAuthMiddleware, async (req, res) => {
   }
 });
 
+app.get("/api/na/duty/logs", naAuthMiddleware, async (req, res) => {
+  try {
+    const caregiver = req.caregiver;
+    const { date, bookingId } = req.query;
+    const filter = { caregiver: caregiver._id };
+    if (date) {
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+      filter.date = { $gte: startOfDay, $lte: endOfDay };
+    }
+    if (bookingId) {
+      filter.booking = bookingId;
+    }
+
+    const logs = await DutyLog.find(filter).sort({ dutyStart: -1 });
+    sendSuccess(res, logs);
+  } catch (err) {
+    sendError(res, err.message, 400);
+  }
+});
+
 // --- NA Report Routes ---
 app.post("/api/na/reports", naAuthMiddleware, async (req, res) => {
   try {
@@ -3178,6 +3201,147 @@ app.get(
       sendSuccess(res, report);
     } catch (err) {
       sendError(res, err.message, 400);
+    }
+  },
+);
+
+app.post(
+  "/api/admin/na-reports/:id/ai-summary",
+  authMiddleware,
+  roleMiddleware(["admin"]),
+  async (req, res) => {
+    try {
+      const apiKey =
+        process.env.GEMINI_API_KEY ||
+        process.env.GOOGLE_AI_STUDIO_API_KEY ||
+        process.env.GOOGLE_API_KEY;
+
+      if (!apiKey) {
+        return sendError(
+          res,
+          "Google AI Studio API Key (GEMINI_API_KEY) is not configured in backend/.env",
+          400
+        );
+      }
+
+      const report = await DailyReport.findById(req.params.id)
+        .populate("caregiver", "caregiverName")
+        .populate("booking");
+
+      if (!report) {
+        return sendError(res, "Report not found");
+      }
+
+      const childName = report.childName || "Child";
+      const caregiverName =
+        report.caregiver?.caregiverName ||
+        report.caregiverName ||
+        "Nurse Aid";
+      const reportDate = report.date
+        ? new Date(report.date).toISOString().split("T")[0]
+        : "N/A";
+      const records = report.records || [];
+
+      if (records.length === 0) {
+        return sendError(
+          res,
+          "No records available in this report to generate an AI summary.",
+          400
+        );
+      }
+
+      const prompt = `You are an expert pediatric nurse care coordinator and clinical supervisor at Healthy Nara.
+Analyze the following daily care report logged by the Nurse Aid / Caregiver and generate a structured, highly professional, clean Daily Care Summary in English.
+
+### REPORT DETAILS:
+- Child Name: ${childName}
+- Caregiver / Nurse Aid: ${caregiverName}
+- Date: ${reportDate}
+- Duty Status: ${report.status}
+- Total Logged Events: ${records.length}
+
+### LOGGED CARE ACTIVITIES & OBSERVATIONS:
+${records
+          .map(
+            (r, i) =>
+              `${i + 1}. [${r.category}] at ${r.time}: ${r.desc}`
+          )
+          .join("\n")}
+
+### INSTRUCTIONS FOR OUTPUT:
+Format the response using clean Markdown with the following clear sections:
+1. **Executive Care Summary**: A concise overview of the child's general well-being and daily progress.
+2. **Key Care Highlights**:
+   - **Nutrition & Feeding**: Details of feeding times, meals, liquids, or supplements.
+   - **Hygiene & Comfort**: Diaper changes, bathing, clothing, and hygiene status.
+   - **Rest & Sleep**: Nap times, sleep quality, and duration.
+   - **Activities & Mood**: Developmental activities, engagement, and physical exercises.
+3. **Observations & Clinical Notes**:
+   - Any unusual symptoms, health concerns, behavioral changes, or fever (or state 'No unusual findings or adverse events reported; child appeared healthy and stable.').
+4. **Caregiver & Parental Recommendations**: Actionable suggestions or notes for the parents and upcoming shift supervisor.
+
+Write in a warm, professional, and reassuring tone suitable for healthcare records.`;
+
+      let summaryText = "";
+      const models = [
+        "gemini-3.6-flash",
+      ];
+      let lastErr = null;
+
+      for (const model of models) {
+        try {
+          const resp = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: {
+                  temperature: 0.4,
+                  maxOutputTokens: 1024,
+                },
+              }),
+            }
+          );
+
+          if (resp.ok) {
+            const data = await resp.json();
+            summaryText =
+              data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+            if (summaryText) break;
+          } else {
+            const errData = await resp.json().catch(() => ({}));
+            lastErr = errData?.error?.message || resp.statusText;
+          }
+        } catch (e) {
+          lastErr = e.message;
+        }
+      }
+
+      if (!summaryText) {
+        return sendError(
+          res,
+          `Google AI Studio Error: ${lastErr || "Unable to generate summary"}. Please make sure you are using a standard Free API Key from https://aistudio.google.com/app/apikey (starts with AIzaSy...).`,
+          500
+        );
+      }
+
+      // Save / update summary in database (supports multiple re-generations)
+      report.aiSummary = summaryText;
+      report.aiSummaryGeneratedAt = new Date();
+      await report.save();
+
+      sendSuccess(
+        res,
+        {
+          aiSummary: report.aiSummary,
+          aiSummaryGeneratedAt: report.aiSummaryGeneratedAt,
+        },
+        "AI Summary generated successfully"
+      );
+    } catch (err) {
+      sendError(res, err.message, 500);
     }
   },
 );
