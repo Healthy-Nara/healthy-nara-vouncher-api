@@ -33,6 +33,7 @@ import { Expense } from "./models/Expense.js";
 import { Ticket } from "./models/Ticket.js";
 import { TicketComment } from "./models/TicketComment.js";
 import { TicketHistory } from "./models/TicketHistory.js";
+import { Blog } from "./models/Blog.js";
 import { initTelegramService, initTelegramWebhook, notifyTicketAssigned, notifyTicketCommented, processIncomingMessage, processTicketCallback } from "./telegramService.js";
 
 const app = express();
@@ -3211,15 +3212,16 @@ app.post(
   roleMiddleware(["admin"]),
   async (req, res) => {
     try {
-      const apiKey =
+      const openRouterKey = process.env.OPENROUTER_API_KEY;
+      const geminiKey =
         process.env.GEMINI_API_KEY ||
         process.env.GOOGLE_AI_STUDIO_API_KEY ||
         process.env.GOOGLE_API_KEY;
 
-      if (!apiKey) {
+      if (!openRouterKey && !geminiKey) {
         return sendError(
           res,
-          "Google AI Studio API Key (GEMINI_API_KEY) is not configured in backend/.env",
+          "Please configure OPENROUTER_API_KEY (or GEMINI_API_KEY) in backend/.env",
           400
         );
       }
@@ -3250,72 +3252,137 @@ app.post(
         );
       }
 
-      const prompt = `You are an expert pediatric nurse care coordinator and clinical supervisor at Healthy Nara.
-Analyze the following daily care report logged by the Nurse Aid / Caregiver and generate a structured, highly professional, clean Daily Care Summary in English.
+      const prompt = `You are an expert pediatric nurse care coordinator and clinical supervisor at Healthy Nara (ကလေးသူငယ်နှင့် မိသားစု ကျန်းမာရေး ပြုစုစောင့်ရှောက်မှု အဖွဲ့).
+Analyze the following daily care report logged by the Nurse Aid / Caregiver and generate a structured, highly professional, warm, and clean Daily Care Summary in MYANMAR LANGUAGE ONLY (မြန်မာဘာသာ သီးသန့်ဖြင့်သာ ရေးသားပေးပါ).
 
-### REPORT DETAILS:
-- Child Name: ${childName}
-- Caregiver / Nurse Aid: ${caregiverName}
-- Date: ${reportDate}
-- Duty Status: ${report.status}
-- Total Logged Events: ${records.length}
+### အချက်အလက်များ (REPORT DETAILS):
+- ကလေးအမည် (Child Name): ${childName}
+- ပြုစုစောင့်ရှောက်သူ (Caregiver / Nurse Aid): ${caregiverName}
+- ရက်စွဲ (Date): ${reportDate}
+- တာဝန်အခြေအနေ (Duty Status): ${report.status}
+- မှတ်တမ်းတင်ထားသော အချက်အရေအတွက်: ${records.length} ခု
 
-### LOGGED CARE ACTIVITIES & OBSERVATIONS:
+### မှတ်တမ်းတင်ထားသော ပြုစုစောင့်ရှောက်မှု အချက်များ (LOGGED ACTIVITIES):
 ${records
           .map(
             (r, i) =>
-              `${i + 1}. [${r.category}] at ${r.time}: ${r.desc}`
+              `${i + 1}. [${r.category}] အချိန် ${r.time}: ${r.desc}`
           )
           .join("\n")}
 
-### INSTRUCTIONS FOR OUTPUT:
-Format the response using clean Markdown with the following clear sections:
-1. **Executive Care Summary**: A concise overview of the child's general well-being and daily progress.
-2. **Key Care Highlights**:
-   - **Nutrition & Feeding**: Details of feeding times, meals, liquids, or supplements.
-   - **Hygiene & Comfort**: Diaper changes, bathing, clothing, and hygiene status.
-   - **Rest & Sleep**: Nap times, sleep quality, and duration.
-   - **Activities & Mood**: Developmental activities, engagement, and physical exercises.
-3. **Observations & Clinical Notes**:
-   - Any unusual symptoms, health concerns, behavioral changes, or fever (or state 'No unusual findings or adverse events reported; child appeared healthy and stable.').
-4. **Caregiver & Parental Recommendations**: Actionable suggestions or notes for the parents and upcoming shift supervisor.
+### ရေးသားရမည့် ပုံစံနှင့် သတ်မှတ်ချက်များ (INSTRUCTIONS FOR OUTPUT):
+မြန်မာဘာသာစကားဖြင့် သာယာချောမွေ့စွာ၊ ဆေးဘက်ဆိုင်ရာ ကျွမ်းကျင်မှုရှိစွာနှင့် ဖတ်ရှုသူ မိဘများ စိတ်အေးချမ်းသာစေမည့် အသုံးအနှုန်းများဖြင့် အောက်ပါ Markdown ခေါင်းစဉ်များအတိုင်း စနစ်တကျ အစီရင်ခံစာ ရေးသားပေးပါ-
 
-Write in a warm, professional, and reassuring tone suitable for healthcare records.`;
+1. **🌟 နေ့စဉ် ပြုစုစောင့်ရှောက်မှု အကျဉ်းချုပ် (Executive Summary)**:
+   - ကလေးငယ်၏ တစ်နေ့တာ အထွေထွေ ကျန်းမာရေး၊ လန်းဆန်းမှုနှင့် နေ့စဉ်အခြေအနေ အကျဉ်းချုပ်။
+
+2. **📋 အဓိက ပြုစုစောင့်ရှောက်မှု မှတ်တမ်းများ (Care Highlights)**:
+   - **🍲 အာဟာရနှင့် အစာကျွေးမွေးမှု (Nutrition & Feeding)**: အစာစားချိန်၊ နို့/အစားအသောက် စားသောက်မှု ပမာဏနှင့် အာဟာရရရှိမှု အခြေအနေ။
+   - **🧼 တစ်ကိုယ်ရည် သန့်ရှင်းရေး (Hygiene & Comfort)**: ရေချိုးပေးခြင်း၊ အဝတ်အစားနှင့် ဒိုင်ပါလဲပေးမှု၊ သန့်ရှင်းမှု အခြေအနေ။
+   - **🛌 အိပ်စက်အနားယူမှု (Rest & Sleep)**: နေ့လယ်/ည အိပ်စက်ချိန် အပိုင်းအခြား၊ အိပ်ပျော်မှု အရည်အသွေးနှင့် ကြာချိန်။
+   - **🎨 ကစားလှုပ်ရှားမှုနှင့် စိတ်ခံစားမှု (Activities & Mood)**: ကလေး၏ စိတ်ပျော်ရွှင်မှု၊ ဉာဏ်ရည်နှင့် ကိုယ်လက်လှုပ်ရှား ကစားမှုများ။
+
+3. **🔍 ကျန်းမာရေး စောင့်ကြည့်စစ်ဆေးချက်နှင့် ထူးခြားဖြစ်စဉ်များ (Clinical Observations & Unusual Findings)**:
+   - ကိုယ်အပူချိန်၊ အဖျား၊ ဝမ်းသွားမှု၊ ဓာတ်မတည့်မှု သို့မဟုတ် ထူးခြားဖြစ်စဉ်များ ရှိ/မရှိ (ထူးခြားဖြစ်စဉ် မရှိပါက 'ထူးခြားဖြစ်စဉ် သို့မဟုတ် ကျန်းမာရေးဆိုင်ရာ စိုးရိမ်ဖွယ်ရာ မရှိဘဲ ပုံမှန်အတိုင်း ကျန်းမာတည်ငြိမ်လျက် ရှိပါသည်' ဟု ရေးပေးပါ)။
+
+4. **💡 မိဘများနှင့် နောက်တာဝန်ကျ ဆရာမအတွက် အကြံပြုချက်များ (Recommendations)**:
+   - မိဘများနှင့် နောက်ဆိုင်းတာဝန်ကျ ဆရာမများ ဆက်လက် သတိပြု ဆောင်ရွက်ပေးသင့်သည့် လက်တွေ့ အကြံပြုချက်များ။
+
+အရေးကြီးသည်မှာ အင်္ဂလိပ်စာလုံးများ မရောနှောဘဲ အဓိပ္ပာယ်ပြည့်ဝသော မြန်မာဘာသာ (Myanmar language) ဖြင့်သာ အပြည့်အစုံ ရေးသားထုတ်ပေးရပါမည်။`;
 
       let summaryText = "";
-      const models = [
-        "gemini-3.6-flash",
-      ];
       let lastErr = null;
 
-      for (const model of models) {
-        try {
-          const resp = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: {
-                  temperature: 0.4,
-                  maxOutputTokens: 1024,
-                },
-              }),
-            }
-          );
+      // 1. If OPENROUTER_API_KEY is configured, prioritize OpenRouter API
+      if (openRouterKey) {
+        const openRouterModels = [
+          "google/gemini-2.5-flash",
+          "google/gemini-2.0-flash-exp:free",
+          "meta-llama/llama-3.3-70b-instruct:free",
+          "openai/gpt-4o-mini",
+          "anthropic/claude-3.5-haiku",
+        ];
 
-          if (resp.ok) {
-            const data = await resp.json();
-            summaryText =
-              data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-            if (summaryText) break;
-          } else {
-            const errData = await resp.json().catch(() => ({}));
-            lastErr = errData?.error?.message || resp.statusText;
+        for (const model of openRouterModels) {
+          try {
+            const resp = await fetch(
+              "https://openrouter.ai/api/v1/chat/completions",
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${openRouterKey}`,
+                  "HTTP-Referer": "https://healthynara.com",
+                  "X-Title": "Healthy Nara Care System",
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  model: model,
+                  messages: [
+                    {
+                      role: "system",
+                      content:
+                        "You are an expert pediatric nurse care coordinator and clinical supervisor at Healthy Nara. You must generate the entire daily care summary in natural, professional Myanmar language (မြန်မာဘာသာ) only.",
+                    },
+                    { role: "user", content: prompt },
+                  ],
+                  temperature: 0.4,
+                  max_tokens: 1500,
+                }),
+              }
+            );
+
+            if (resp.ok) {
+              const data = await resp.json();
+              summaryText =
+                data?.choices?.[0]?.message?.content || "";
+              if (summaryText) break;
+            } else {
+              const errData = await resp.json().catch(() => ({}));
+              lastErr = errData?.error?.message || resp.statusText;
+            }
+          } catch (e) {
+            lastErr = e.message;
           }
-        } catch (e) {
-          lastErr = e.message;
+        }
+      }
+
+      // 2. Fallback to Gemini Direct API if OpenRouter didn't succeed or wasn't provided
+      if (!summaryText && geminiKey) {
+        const geminiModels = [
+          "gemini-2.5-flash",
+          "gemini-3.5-flash-lite",
+          "gemini-3.6-flash",
+        ];
+
+        for (const model of geminiModels) {
+          try {
+            const resp = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: prompt }] }],
+                  generationConfig: {
+                    temperature: 0.4,
+                    maxOutputTokens: 2048,
+                  },
+                }),
+              }
+            );
+
+            if (resp.ok) {
+              const data = await resp.json();
+              summaryText =
+                data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+              if (summaryText) break;
+            } else {
+              const errData = await resp.json().catch(() => ({}));
+              lastErr = errData?.error?.message || resp.statusText;
+            }
+          } catch (e) {
+            lastErr = e.message;
+          }
         }
       }
 
@@ -3681,6 +3748,309 @@ app.post("/api/telegram/webhook", async (req, res) => {
   } catch (error) {
     console.error(">>> WEBHOOK ERROR:", error.message);
     res.status(200).json({ ok: true });
+  }
+});
+
+// --- Blog Slug Helper ---
+const generateBlogSlug = async (title, currentId = null) => {
+  let baseSlug = title
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/[\s_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (!baseSlug) baseSlug = "post";
+
+  let slug = baseSlug;
+  let count = 1;
+  while (true) {
+    const existing = await Blog.findOne({ slug });
+    if (!existing || (currentId && existing._id.toString() === currentId.toString())) {
+      break;
+    }
+    slug = `${baseSlug}-${count}`;
+    count++;
+  }
+  return slug;
+};
+
+// --- Blog Routes ---
+
+// GET /api/blogs — List all blogs with filters & stats
+app.get("/api/blogs", async (req, res) => {
+  try {
+    const { search, category, status, isFeatured, page = 1, limit = 50, sort = "-createdAt" } = req.query;
+    const query = {};
+
+    if (search) {
+      const regex = new RegExp(search, "i");
+      query.$or = [{ title: regex }, { excerpt: regex }, { tags: regex }, { authorName: regex }];
+    }
+
+    if (category && category !== "All") {
+      query.category = category;
+    }
+
+    if (status && status !== "All") {
+      query.status = status;
+    }
+
+    if (isFeatured !== undefined) {
+      query.isFeatured = isFeatured === "true" || isFeatured === true;
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const [blogs, total, stats] = await Promise.all([
+      Blog.find(query).sort(sort).skip(skip).limit(parseInt(limit)),
+      Blog.countDocuments(query),
+      Blog.aggregate([
+        {
+          $group: {
+            _id: null,
+            totalPosts: { $sum: 1 },
+            publishedPosts: {
+              $sum: { $cond: [{ $eq: ["$status", "Published"] }, 1, 0] },
+            },
+            draftPosts: {
+              $sum: { $cond: [{ $eq: ["$status", "Draft"] }, 1, 0] },
+            },
+            totalViews: { $sum: "$viewCount" },
+          },
+        },
+      ]),
+    ]);
+
+    const summaryStats = stats[0] || {
+      totalPosts: 0,
+      publishedPosts: 0,
+      draftPosts: 0,
+      totalViews: 0,
+    };
+
+    sendSuccess(res, {
+      blogs,
+      total,
+      page: parseInt(page),
+      totalPages: Math.ceil(total / parseInt(limit)),
+      stats: summaryStats,
+    });
+  } catch (error) {
+    sendError(res, error.message, 500);
+  }
+});
+
+// GET /api/blogs/:idOrSlug — Get single blog by ID or Slug (with optional view increment)
+app.get("/api/blogs/:idOrSlug", async (req, res) => {
+  try {
+    const { idOrSlug } = req.params;
+    const isObjectId = mongoose.Types.ObjectId.isValid(idOrSlug);
+
+    let blog;
+    if (isObjectId) {
+      blog = await Blog.findByIdAndUpdate(
+        idOrSlug,
+        { $inc: { viewCount: 1 } },
+        { new: true }
+      );
+    } else {
+      blog = await Blog.findOneAndUpdate(
+        { slug: idOrSlug },
+        { $inc: { viewCount: 1 } },
+        { new: true }
+      );
+    }
+
+    if (!blog) return sendError(res, "Blog post not found", 404);
+    sendSuccess(res, blog);
+  } catch (error) {
+    sendError(res, error.message, 500);
+  }
+});
+
+// POST /api/blogs — Create new blog
+app.post("/api/blogs", authMiddleware, roleMiddleware(["admin", "staff"]), async (req, res) => {
+  try {
+    const {
+      title,
+      slug: customSlug,
+      excerpt,
+      content,
+      coverImage,
+      category,
+      tags,
+      status = "Draft",
+      isFeatured = false,
+      publishedAt,
+    } = req.body;
+
+    if (!title || !title.trim()) {
+      return sendError(res, "Title is required", 400);
+    }
+
+    if (!content || !content.trim()) {
+      return sendError(res, "Content is required", 400);
+    }
+
+    // Auto-generate or sanitize slug
+    const finalSlug = customSlug && customSlug.trim()
+      ? await generateBlogSlug(customSlug)
+      : await generateBlogSlug(title);
+
+    // Calculate estimated reading time
+    const wordCount = content.replace(/<[^>]*>/g, " ").trim().split(/\s+/).length;
+    const readTimeMinutes = Math.max(1, Math.ceil(wordCount / 200));
+
+    const blog = new Blog({
+      title: title.trim(),
+      slug: finalSlug,
+      excerpt: excerpt?.trim() || "",
+      content: content.trim(),
+      coverImage: coverImage?.trim() || "",
+      category: category || "General",
+      tags: Array.isArray(tags) ? tags : typeof tags === "string" ? tags.split(",").map((t) => t.trim()).filter(Boolean) : [],
+      author: req.user._id,
+      authorName: req.user.name || req.user.username || "Staff",
+      status,
+      isFeatured: Boolean(isFeatured),
+      publishedAt: status === "Published" ? (publishedAt ? new Date(publishedAt) : new Date()) : null,
+      readTimeMinutes,
+    });
+
+    await blog.save();
+
+    await createLog(
+      req,
+      "CREATE_BLOG",
+      "Blog",
+      blog._id.toString(),
+      `Created blog: ${blog.title} (${blog.slug})`
+    );
+
+    sendSuccess(res, blog, "Blog post created successfully", 201);
+  } catch (error) {
+    sendError(res, error.message, 400);
+  }
+});
+
+// PUT /api/blogs/:id — Update blog
+app.put("/api/blogs/:id", authMiddleware, roleMiddleware(["admin", "staff"]), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const blog = await Blog.findById(id);
+    if (!blog) return sendError(res, "Blog post not found", 404);
+
+    const {
+      title,
+      slug: customSlug,
+      excerpt,
+      content,
+      coverImage,
+      category,
+      tags,
+      status,
+      isFeatured,
+      publishedAt,
+    } = req.body;
+
+    if (title && title.trim()) {
+      blog.title = title.trim();
+    }
+
+    if (customSlug && customSlug.trim()) {
+      blog.slug = await generateBlogSlug(customSlug, blog._id);
+    } else if (title && title.trim() && title.trim() !== blog.title) {
+      blog.slug = await generateBlogSlug(title, blog._id);
+    }
+
+    if (excerpt !== undefined) blog.excerpt = excerpt.trim();
+    if (content !== undefined) {
+      blog.content = content.trim();
+      const wordCount = content.replace(/<[^>]*>/g, " ").trim().split(/\s+/).length;
+      blog.readTimeMinutes = Math.max(1, Math.ceil(wordCount / 200));
+    }
+    if (coverImage !== undefined) blog.coverImage = coverImage.trim();
+    if (category !== undefined) blog.category = category;
+    if (tags !== undefined) {
+      blog.tags = Array.isArray(tags) ? tags : typeof tags === "string" ? tags.split(",").map((t) => t.trim()).filter(Boolean) : [];
+    }
+    if (isFeatured !== undefined) blog.isFeatured = Boolean(isFeatured);
+
+    if (status !== undefined) {
+      const prevStatus = blog.status;
+      blog.status = status;
+      if (status === "Published" && (!blog.publishedAt || prevStatus !== "Published")) {
+        blog.publishedAt = publishedAt ? new Date(publishedAt) : new Date();
+      }
+    }
+
+    await blog.save();
+
+    await createLog(
+      req,
+      "UPDATE_BLOG",
+      "Blog",
+      blog._id.toString(),
+      `Updated blog: ${blog.title}`
+    );
+
+    sendSuccess(res, blog, "Blog post updated successfully");
+  } catch (error) {
+    sendError(res, error.message, 400);
+  }
+});
+
+// PATCH /api/blogs/:id/status — Toggle status
+app.patch("/api/blogs/:id/status", authMiddleware, roleMiddleware(["admin", "staff"]), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!["Draft", "Published", "Archived"].includes(status)) {
+      return sendError(res, "Invalid status", 400);
+    }
+
+    const blog = await Blog.findById(id);
+    if (!blog) return sendError(res, "Blog post not found", 404);
+
+    blog.status = status;
+    if (status === "Published" && !blog.publishedAt) {
+      blog.publishedAt = new Date();
+    }
+
+    await blog.save();
+
+    await createLog(
+      req,
+      "STATUS_BLOG",
+      "Blog",
+      blog._id.toString(),
+      `Changed blog status to ${status}: ${blog.title}`
+    );
+
+    sendSuccess(res, blog, `Blog status updated to ${status}`);
+  } catch (error) {
+    sendError(res, error.message, 400);
+  }
+});
+
+// DELETE /api/blogs/:id — Delete blog
+app.delete("/api/blogs/:id", authMiddleware, roleMiddleware(["admin", "staff"]), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const blog = await Blog.findByIdAndDelete(id);
+    if (!blog) return sendError(res, "Blog post not found", 404);
+
+    await createLog(
+      req,
+      "DELETE_BLOG",
+      "Blog",
+      blog._id.toString(),
+      `Deleted blog: ${blog.title}`
+    );
+
+    sendSuccess(res, null, "Blog post deleted successfully");
+  } catch (error) {
+    sendError(res, error.message, 400);
   }
 });
 
