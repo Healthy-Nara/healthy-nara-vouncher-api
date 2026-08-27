@@ -15,7 +15,7 @@ const bookingSchema = new mongoose.Schema({
   lead:           { type: mongoose.Schema.Types.ObjectId, ref: 'Lead' },
   customerName:   { type: String, required: true },
   phoneNumber:    { type: String, required: true },
-  servicePackage: { type: String, enum: ['Newborn Service', 'Childcare Service', 'N/A'], default: 'N/A' },
+  servicePackage: { type: String, default: 'N/A' },
   dutyType:       { type: String },
   requirements:   { type: String },
   requestedDates: [{ type: Date }],

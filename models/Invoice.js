@@ -13,7 +13,7 @@ const invoiceSchema = new mongoose.Schema({
   caregiverName: { type: String, required: true },
   booking: { type: mongoose.Schema.Types.ObjectId, ref: 'Booking' },
   dutyType: { type: String, required: true, default: 'Newborn Service' },
-  servicePackage: { type: String, enum: ['Newborn Service', 'Childcare Service', 'N/A'], default: 'N/A' },
+  servicePackage: { type: String, default: 'N/A' },
   amount: { type: Number, required: true },
   platformFeeType: { type: String, enum: ['percentage', 'fixed'], default: 'percentage' },
   platformFeeRate: { type: Number, default: 10 },

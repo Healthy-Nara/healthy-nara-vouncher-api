@@ -603,13 +603,20 @@ app.post(
   async (req, res) => {
     try {
       const {
+        parentId,
         parentInfo,
+        parent: parentParam,
+        servicePackage,
         dutyDuration,
         dutyShift,
         requestedDates,
         additionalNotes,
       } = req.body;
-      const parent = await Parent.findById(parentInfo);
+      const targetParentId = parentId || parentInfo || parentParam;
+      if (!targetParentId) {
+        return sendError(res, "Parent ID is required", 400);
+      }
+      const parent = await Parent.findById(targetParentId);
       if (!parent) return sendError(res, "Parent not found", 404);
 
       const bookingNumber = await generateBookingNumber();
@@ -619,6 +626,7 @@ app.post(
         phoneNumber: parent.contactNumber,
         parent: parent._id,
         status: "Pending NA Selection",
+        servicePackage: servicePackage || parent.servicePackage,
         dutyDuration,
         dutyShift,
         requestedDates,
