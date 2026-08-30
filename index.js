@@ -3875,6 +3875,156 @@ app.get("/api/blogs/:idOrSlug", async (req, res) => {
   }
 });
 
+// ============================================================================
+// PUBLIC PORTFOLIO / CLIENT BLOG APIS (No Authentication Required)
+// ============================================================================
+
+// 1. GET /api/public/blogs/featured - Get featured published blogs for hero/spotlight
+app.get("/api/public/blogs/featured", async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 4, 10);
+    const blogs = await Blog.find({
+      status: "Published",
+      isFeatured: true,
+    })
+      .select("-content")
+      .sort("-publishedAt")
+      .limit(limit);
+
+    sendSuccess(res, blogs, "Featured blogs retrieved successfully");
+  } catch (error) {
+    sendError(res, error.message, 500);
+  }
+});
+
+// 2. GET /api/public/blogs/categories - Get category list with published post counts
+app.get("/api/public/blogs/categories", async (req, res) => {
+  try {
+    const categoryCounts = await Blog.aggregate([
+      { $match: { status: "Published" } },
+      {
+        $group: {
+          _id: "$category",
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { count: -1 } },
+    ]);
+
+    const totalPublished = await Blog.countDocuments({ status: "Published" });
+    const categories = [
+      { name: "All", count: totalPublished },
+      ...categoryCounts.map((c) => ({ name: c._id || "General", count: c.count })),
+    ];
+
+    sendSuccess(res, categories, "Categories retrieved successfully");
+  } catch (error) {
+    sendError(res, error.message, 500);
+  }
+});
+
+// 3. GET /api/public/blogs - List published blogs with pagination, filters & lightweight payload
+app.get("/api/public/blogs", async (req, res) => {
+  try {
+    const {
+      search,
+      category,
+      tag,
+      page = 1,
+      limit = 9,
+      sort = "-publishedAt",
+    } = req.query;
+
+    const query = { status: "Published" };
+
+    if (search) {
+      const regex = new RegExp(search, "i");
+      query.$or = [
+        { title: regex },
+        { excerpt: regex },
+        { tags: regex },
+        { authorName: regex },
+      ];
+    }
+
+    if (category && category !== "All") {
+      query.category = category;
+    }
+
+    if (tag) {
+      query.tags = tag;
+    }
+
+    const pageNum = Math.max(1, parseInt(page));
+    const limitNum = Math.min(Math.max(1, parseInt(limit)), 50);
+    const skip = (pageNum - 1) * limitNum;
+
+    const [blogs, total] = await Promise.all([
+      Blog.find(query)
+        .select("-content") // Exclude heavy body for fast list rendering
+        .sort(sort)
+        .skip(skip)
+        .limit(limitNum),
+      Blog.countDocuments(query),
+    ]);
+
+    const totalPages = Math.ceil(total / limitNum);
+
+    sendSuccess(res, {
+      blogs,
+      pagination: {
+        total,
+        page: pageNum,
+        limit: limitNum,
+        totalPages,
+        hasNext: pageNum < totalPages,
+        hasPrev: pageNum > 1,
+      },
+    });
+  } catch (error) {
+    sendError(res, error.message, 500);
+  }
+});
+
+// 4. GET /api/public/blogs/:slugOrId - Get single published blog by slug or ID with related posts
+app.get("/api/public/blogs/:slugOrId", async (req, res) => {
+  try {
+    const { slugOrId } = req.params;
+    const isObjectId = mongoose.Types.ObjectId.isValid(slugOrId);
+
+    const filter = isObjectId
+      ? { _id: slugOrId, status: "Published" }
+      : { slug: slugOrId, status: "Published" };
+
+    const blog = await Blog.findOneAndUpdate(
+      filter,
+      { $inc: { viewCount: 1 } },
+      { new: true }
+    );
+
+    if (!blog) {
+      return sendError(res, "Published blog post not found", 404);
+    }
+
+    // Fetch up to 3 related articles from same category
+    const relatedBlogs = await Blog.find({
+      _id: { $ne: blog._id },
+      category: blog.category,
+      status: "Published",
+    })
+      .select("-content")
+      .sort("-publishedAt")
+      .limit(3);
+
+    sendSuccess(res, {
+      blog,
+      relatedBlogs,
+    });
+  } catch (error) {
+    sendError(res, error.message, 500);
+  }
+});
+
 // POST /api/blogs — Create new blog
 app.post("/api/blogs", authMiddleware, roleMiddleware(["admin", "staff"]), async (req, res) => {
   try {
