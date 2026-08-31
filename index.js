@@ -34,7 +34,7 @@ import { Ticket } from "./models/Ticket.js";
 import { TicketComment } from "./models/TicketComment.js";
 import { TicketHistory } from "./models/TicketHistory.js";
 import { Blog } from "./models/Blog.js";
-import { initTelegramService, initTelegramWebhook, notifyTicketAssigned, notifyTicketCommented, processIncomingMessage, processTicketCallback } from "./telegramService.js";
+import { initTelegramService, initTelegramWebhook, getTelegramWebhookStatus, notifyTicketAssigned, notifyTicketCommented, processIncomingMessage, processTicketCallback } from "./telegramService.js";
 
 const app = express();
 
@@ -3746,16 +3746,51 @@ app.put("/api/users/:id/password", authMiddleware, roleMiddleware(["superadmin"]
 app.post("/api/telegram/webhook", async (req, res) => {
   try {
     const body = req.body;
-    if (body.callback_query) {
+    console.log(">>> [Telegram Webhook POST received]:", {
+      update_id: body?.update_id,
+      callback_data: body?.callback_query?.data,
+      from: body?.callback_query?.from?.username || body?.callback_query?.from?.id,
+      message_text: body?.message?.text
+    });
+
+    if (body?.callback_query) {
       await processTicketCallback(body.callback_query);
     }
-    if (body.message) {
+    if (body?.message) {
       await processIncomingMessage(body.message);
     }
     res.status(200).json({ ok: true });
   } catch (error) {
     console.error(">>> WEBHOOK ERROR:", error.message);
     res.status(200).json({ ok: true });
+  }
+});
+
+// GET /api/telegram/webhook-status - Inspect live Telegram webhook status
+app.get("/api/telegram/webhook-status", async (req, res) => {
+  try {
+    const info = await getTelegramWebhookStatus();
+    sendSuccess(res, {
+      configuredWebhookUrl: process.env.TELEGRAM_WEBHOOK_URL,
+      telegramInfo: info
+    });
+  } catch (error) {
+    sendError(res, error.message, 500);
+  }
+});
+
+// POST /api/telegram/set-webhook - Force set/update Telegram webhook URL
+app.post("/api/telegram/set-webhook", async (req, res) => {
+  try {
+    const customUrl = req.body?.url || req.query?.url;
+    const result = await initTelegramWebhook(customUrl);
+    const info = await getTelegramWebhookStatus();
+    sendSuccess(res, {
+      result,
+      telegramInfo: info
+    }, "Telegram webhook registered successfully");
+  } catch (error) {
+    sendError(res, error.message, 500);
   }
 });
 

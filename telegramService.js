@@ -220,12 +220,17 @@ export async function processTicketCallback(callbackQuery) {
   }
 }
 
-export async function initTelegramWebhook() {
+export async function getTelegramWebhookStatus() {
+  return await callTelegram('getWebhookInfo', {});
+}
+
+export async function initTelegramWebhook(customUrl) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  const url = process.env.TELEGRAM_WEBHOOK_URL;
-  if (!token || !url) return;
+  const url = customUrl || process.env.TELEGRAM_WEBHOOK_URL;
+  if (!token || !url) return null;
   const res = await callTelegram('setWebhook', { url });
-  console.log('>>> [Telegram Webhook Setup Result]:', res);
+  console.log(`>>> [Telegram Webhook Setup Result]: ${url} ->`, res);
+  return res;
 }
 
 let isPollingActive = false;
@@ -236,9 +241,9 @@ export async function startTelegramPolling() {
   isPollingActive = true;
 
   try {
-    // Delete existing webhook so getUpdates polling works locally
+    // Only delete webhook if explicit polling was forced by developer
     await callTelegram('deleteWebhook', { drop_pending_updates: false });
-    console.log('>>> [Telegram] Local Development Mode: Webhook deleted. Long-polling started.');
+    console.log('>>> [Telegram] Explicit Polling Mode: Webhook deleted. Long-polling started.');
 
     let offset = 0;
 
@@ -274,13 +279,22 @@ export async function startTelegramPolling() {
 }
 
 export async function initTelegramService() {
-  const isPollingForced = process.env.TELEGRAM_USE_POLLING === 'true';
-  const hasWebhookUrl = process.env.TELEGRAM_WEBHOOK_URL && process.env.TELEGRAM_WEBHOOK_URL.startsWith('https://');
-  const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL;
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) {
+    console.log('>>> [Telegram] No TELEGRAM_BOT_TOKEN provided. Skipping Telegram service.');
+    return;
+  }
 
-  if (!isPollingForced && isProduction && hasWebhookUrl) {
+  const isPollingForced = process.env.TELEGRAM_USE_POLLING === 'true';
+  const webhookUrl = process.env.TELEGRAM_WEBHOOK_URL;
+  const hasWebhookUrl = webhookUrl && webhookUrl.startsWith('https://');
+
+  if (hasWebhookUrl && !isPollingForced) {
+    // If webhook URL is provided, always register webhook (regardless of NODE_ENV)
     await initTelegramWebhook();
-  } else {
+  } else if (isPollingForced) {
     await startTelegramPolling();
+  } else {
+    console.log('>>> [Telegram] Running locally without webhook URL. Preserving live Telegram webhook.');
   }
 }
