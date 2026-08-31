@@ -1851,7 +1851,48 @@ app.get(
     try {
       const caregiver = await Caregiver.findById(req.params.id);
       if (!caregiver) return sendError(res, "Caregiver not found", 404);
-      sendSuccess(res, caregiver, "Caregiver fetched");
+
+      // Auto-populate username & password for older caregivers if missing
+      if (!caregiver.username && caregiver.caregiverName) {
+        caregiver.username = await generateUsername(caregiver.caregiverName);
+        if (!caregiver.password) {
+          caregiver.password = extractPassword(caregiver.NRC);
+        }
+        await caregiver.save();
+      }
+
+      const caregiverData = caregiver.toObject();
+      caregiverData.defaultPassword = extractPassword(caregiver.NRC);
+
+      sendSuccess(res, caregiverData, "Caregiver fetched");
+    } catch (error) {
+      sendError(res, error.message, 500);
+    }
+  },
+);
+
+// Reset caregiver password (admin/staff)
+app.post(
+  "/api/caregivers/:id/reset-password",
+  authMiddleware,
+  roleMiddleware(["admin", "staff"]),
+  async (req, res) => {
+    try {
+      const caregiver = await Caregiver.findById(req.params.id);
+      if (!caregiver) return sendError(res, "Caregiver not found", 404);
+
+      const newPassword = req.body?.password || extractPassword(caregiver.NRC);
+      caregiver.password = newPassword;
+      await caregiver.save();
+
+      sendSuccess(
+        res,
+        {
+          username: caregiver.username,
+          defaultPassword: newPassword,
+        },
+        "Caregiver password reset successfully",
+      );
     } catch (error) {
       sendError(res, error.message, 500);
     }
@@ -1869,9 +1910,13 @@ app.put(
       const existingCaregiver = await Caregiver.findById(req.params.id);
       if (!existingCaregiver) return sendError(res, "Caregiver not found", 404);
 
-      // Update username if name changed
-      let username = existingCaregiver.username;
-      if (caregiverName && caregiverName !== existingCaregiver.caregiverName) {
+      // Update username if explicitly passed, or auto-generate if missing/name changed
+      let username = req.body.username
+        ? req.body.username.toLowerCase().replace(/\s/g, "")
+        : existingCaregiver.username;
+      if (!username && caregiverName) {
+        username = await generateUsername(caregiverName);
+      } else if (!req.body.username && caregiverName && caregiverName !== existingCaregiver.caregiverName) {
         username = await generateUsername(caregiverName);
       }
 
@@ -1931,10 +1976,22 @@ app.get(
         .populate("parent", "parentName contactNumber")
         .sort({ createdAt: -1 });
 
+      // Auto-populate username & password for older caregivers if missing
+      if (!caregiver.username && caregiver.caregiverName) {
+        caregiver.username = await generateUsername(caregiver.caregiverName);
+        if (!caregiver.password) {
+          caregiver.password = extractPassword(caregiver.NRC);
+        }
+        await caregiver.save();
+      }
+
+      const caregiverData = caregiver.toObject();
+      caregiverData.defaultPassword = extractPassword(caregiver.NRC);
+
       sendSuccess(
         res,
         {
-          caregiver,
+          caregiver: caregiverData,
           bookings,
           totalPaid,
           totalPending,
